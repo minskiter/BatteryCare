@@ -22,3 +22,13 @@ App Resources 包含完整的对应源码归档和第三方许可证。发布二
 可执行文件和显示名称为 BatteryCare；bundle ID `com.local.batterybar`、`BatteryBar/config.json` 和 socket 前缀暂保留，避免强制重置旧配置。不要在运行旧 BatteryBar 的同时启动新构建。助手严格检查父 App 可执行文件名称；如再次重命名必须同步更新 Go 检查与构建脚本，不能放宽身份检查。
 
 应用启动总将 `auto_discharge_enabled` 重置为 false；普通参数保留。旧配置路径属于兼容接口，改动需有迁移和回退方案。运行时配置与备份不能提交 Git。
+
+## 四语言本地化（2.1.0）
+
+英文首页为 `README.md`，其余入口为 `README.zh-CN.md`、`README.zh-TW.md` 与 `README.ja.md`。四个文件顶部互相链接。详细开发、安全和设计文档目前使用简体中文，英文和日文 README 已明确标注。
+
+界面资源位于 `Resources/Localizations/{en,zh-Hans,zh-Hant,ja}.json`，由 `Sources/Localization.swift` 加载。构建时复制到 App 的 `Contents/Resources/Localizations/`，Info.plist 同时声明四种语言和英语开发区域。添加文案时必须补全四个资源中的相同键，并保持 `%@` 占位符一致。
+
+首次启动匹配系统首选语言，支持简繁脚本与台湾、香港、澳门地区识别；无匹配时回落到英语。用户在「设置 → 语言」中的明确选择通过 UserDefaults 的 `BatteryCare.language` 保存，与电源参数 JSON 分离。语言变化只更新展示，不重建引擎、不改变耗电开关、不清空设置草稿。已存储的引擎诊断在展示时翻译，底层工具或系统返回的技术诊断保留原文。
+
+`LocalizationTests` 检查四份文案的键集合、非空值、占位符、语言匹配、保存偏好优先级、复合错误和即时模型切换。测试使用隔离的 UserDefaults suite，不改用户语言偏好，不执行硬件写入。

@@ -1,81 +1,91 @@
+[English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md)
+
 <div align="center">
-  <img src="./assets/logo.png" width="128" alt="BatteryCare 多彩充电标识" />
+  <img src="./assets/logo.png" width="128" alt="BatteryCare multicolor charging logo" />
   <h1>BatteryCare</h1>
-  <p><strong>电量，一目了然。控制，恰到好处。</strong></p>
-  <p>轻盈的原生 macOS 菜单栏电池工具，将状态、温度与电源控制收进一个半透明面板。</p>
+  <p><strong>Battery status at a glance. Power control with care.</strong></p>
+  <p>A lightweight native macOS menu bar app for battery status, temperature and power control in one translucent panel.</p>
   <p>
-    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=flat-square&logo=apple" alt="macOS 13+ 构建目标" />
+    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=flat-square&logo=apple" alt="macOS 13+ build target" />
     <img src="https://img.shields.io/badge/interface-SwiftUI%20%2B%20AppKit-F05138?style=flat-square&logo=swift&logoColor=white" alt="SwiftUI + AppKit" />
     <img src="https://img.shields.io/badge/helper-Go%201.25%2B-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go helper" />
-    <img src="https://img.shields.io/badge/runtime-No%20Python-8B5CF6?style=flat-square" alt="No Python runtime" />
+    <img src="https://img.shields.io/badge/languages-EN%20%2F%20ZH--CN%20%2F%20ZH--TW%20%2F%20JA-8B5CF6?style=flat-square" alt="Four interface languages" />
   </p>
   <p>
-    <a href="#overview">项目介绍</a> ·
-    <a href="#features">功能特性</a> ·
-    <a href="#workflows">使用场景</a> ·
-    <a href="#quick-start">快速开始</a> ·
-    <a href="./docs/SECURITY.md">安全边界</a> ·
-    <a href="./docs/DESIGN.md">设计说明</a>
+    <a href="#overview">Overview</a> ·
+    <a href="#features">Features</a> ·
+    <a href="#workflows">Use cases</a> ·
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#docs">Documentation</a>
   </p>
 </div>
 
 ---
 
 <a id="overview"></a>
-## ✨ 认识 BatteryCare
+## ✨ Meet BatteryCare
 
-不用切换终端，也不用另起一个后台服务。BatteryCare 将电池百分比、实际充电状态、温度、健康度和自动耗电控制整合进原生菜单栏 App，以毛玻璃材质、紧凑卡片与清晰图标呈现。
+No terminal juggling or separate background server. BatteryCare brings battery percentage, actual charging status, temperature, health and auto-discharge controls into a native menu bar app with frosted materials, compact cards and clear icons.
 
-项目由早期的 `battery.py` 工具演进而来。当前版本使用 Swift actor 在 App 内完成监测与控制循环，通过随附的小型 Go 助手执行需要管理员权限的硬件操作；**运行不依赖 Python、HTTP 服务或另装 LaunchDaemon**。
+Originally a `battery.py` utility, the current app runs its monitoring and control loop in a Swift actor. A bundled Go helper handles hardware operations that require administrator authorization. **Running the app needs no Python, HTTP service or separately installed LaunchDaemon.**
 
-> **使用边界：** 这不是 Apple 官方应用，也不能保证延长电池寿命。自动耗电会主动增加 CPU 负载、发热与电池循环，不是普通的「充电上限」功能。默认关闭，每次重新打开 App 都保持关闭。请阅读[安全说明](./docs/SECURITY.md)，不要在无人值守或关键任务期间启用。
+> **Know the limits:** BatteryCare is not an Apple product and does not guarantee longer battery life. Auto discharge actively adds CPU load, heat and battery cycles; it is **not** a conventional charge-limit feature. It is off by default and remains off whenever the app restarts. Read the [safety notes](./docs/SECURITY.md) (Simplified Chinese), and do not enable it unattended or during critical work.
 
 <a id="features"></a>
-## 🚀 功能特性
+## 🚀 Features
 
-### 🔋 真实状态，一眼看清
+### 🔋 Real status, clearly presented
 
-- 菜单栏显示电量，左键打开面板，右键进入快捷开关、设置与退出。
-- 闪电仅在系统报告**实际正在充电**时显示，不与自动耗电开关混用。
-- 查看电池温度与健康度；传感器不可用时明确呈现，而不是伪造读数。
-- 面板跟随菜单栏按钮定位，并限制在当前屏幕可见范围；较短屏幕支持滚动。
+- Battery level in the menu bar; left-click opens the panel, right-click opens quick controls, Settings and Quit.
+- The lightning indicator appears **only when the system reports actual charging**, never merely because auto discharge is enabled.
+- Battery temperature and health readings, with unavailable sensors shown honestly rather than fabricated values.
+- A panel anchored below its menu bar button, constrained to the current display, with scrolling on short screens.
 
-### 🎛️ 阈值控制与温度保护
+### 🎛️ Thresholds and thermal protection
 
-- 自定义开始/停止耗电阈值、温度上限、冷却时间与控制轮询间隔。
-- 达到上阈值且传感器可用时，确认适配器已切断后才开启单个 CPU 耗电线程；达到下阈值后停止负载并恢复适配器。
-- 电池与温度每 5 秒采样，健康度缓存 5 分钟；安全停止不等待普通阈值轮询间隔。
-- 过温、低电量或传感器缺失触发停止或冷却；CPU 工作线程与防睡眠断言具有超时保护。
+- Configurable start/stop thresholds, temperature limit, cooldown and control interval.
+- At the upper threshold, the app confirms adapter cutoff before starting one CPU load worker. At the lower threshold, it stops the load and restores the adapter.
+- Battery and temperature samples every 5 seconds; health cached for 5 minutes. Safety stops do not wait for the normal threshold interval.
+- Overheating, low battery or missing sensors stop or pause the load. CPU work and sleep-prevention assertions have timeouts.
 
-### 🧩 服务就在 App 里
+### 🧩 Built into the app
 
-- 普通用户进程负责界面、监测与负载，管理员权限仅用于随附硬件助手。
-- 私有 Unix socket、会话令牌与固定命令集；不开放 HTTP 控制端口。
-- 正常退出时停止负载、释放防睡眠断言并尝试恢复适配器；助手也会检测父进程丢失与心跳超时。
-- 可迁移本项目旧 `com.local.battery-service` 服务；先备份再停用，不卸载其他 Homebrew 服务。
+- The normal user process runs the UI, monitoring and load; administrator privileges are limited to the bundled hardware helper.
+- Private Unix socket, session token and fixed commands; no HTTP control port.
+- Normal quit stops the load, releases sleep prevention and attempts adapter recovery. The helper also checks for parent loss and heartbeat expiry.
+- Migration for this project's legacy `com.local.battery-service`, with backups before disabling it; unrelated Homebrew services are not removed.
 
-### 🎨 原生材质与多彩标识
+### 🌏 Four interface languages
 
-- SwiftUI + AppKit 半透明面板，支持系统外观。
-- 原创珍珠白圆角底、多彩电池与白色闪电 Logo，附 SVG、PNG 和 ICNS。
-- 支持登录时打开；提供原生电池图标设置入口，**隐藏操作由用户在系统设置中完成**。
+- **English, 简体中文, 繁體中文 and 日本語**.
+- Switch in **Settings → Language**. The panel, menus, messages and window titles update immediately, without restarting.
+- First launch follows a supported system preferred language, falling back to English. Your explicit selection is saved and takes priority on later launches.
+- Changing language does not change power control, auto discharge, thresholds or unsaved setting edits.
+
+### 🎨 Native materials and a colorful identity
+
+- SwiftUI + AppKit translucent interface, following system appearance.
+- Original pearl-white rounded-square icon with a multicolor battery and white bolt; SVG, PNG and ICNS included.
+- Open at login and a shortcut to system battery icon settings. **Hiding the native icon is a manual action in System Settings.**
 
 <a id="workflows"></a>
-## 💡 使用场景
+## 💡 Use cases
 
-| 场景 | 可以完成的操作 |
+| Scenario | What you can do |
 | --- | --- |
-| 日常查看电池 | 从菜单栏查看电量、充电、温度和健康度，无需授权硬件控制。 |
-| 手动管理耗电循环 | 了解风险后设置上下阈值，显式授权并启用自动耗电。 |
-| 减少菜单栏重复图标 | 打开系统设置，手动隐藏系统自带电池图标。 |
-| 从旧 Python 版升级 | 使用设置中的迁移入口备份旧服务，再切换至内置引擎。 |
+| Check the battery | Read level, charging, temperature and health without authorizing hardware control. |
+| Run a deliberate discharge cycle | Understand the risks, set thresholds, explicitly authorize control and enable auto discharge. |
+| Reduce duplicate menu bar icons | Open System Settings and manually hide the native battery icon. |
+| Upgrade from the Python version | Back up and migrate the old service through Settings before using the built-in engine. |
+| Use another language | Choose a language in Settings; it applies immediately and is remembered. |
 
 <a id="quick-start"></a>
-## ⚡ 快速开始
+## ⚡ Quick start
 
-### 获取源码并构建
+### Get the source and build
 
-**开发环境：** macOS、Xcode Command Line Tools（提供 Swift 和系统 SDK）、Go 1.25+。构建脚本调用系统 Python 3 生成 plist，**最终 App 无 Python 运行时依赖**。Go 依赖已 vendor，构建不需要在线拉取模块。
+**Development requirements:** macOS, Xcode Command Line Tools (Swift and the system SDK), and Go 1.25+. The build script uses system Python 3 to generate a plist; **the finished app does not need Python at runtime**. Go dependencies are vendored, so builds do not need to download modules.
 
 ```bash
 git clone https://github.com/minskiter/BatteryCare.git
@@ -85,78 +95,84 @@ cd BatteryCare
 open dist/BatteryCare.app
 ```
 
-当前脚本按本机架构构建，最低系统目标为 macOS 13；不是 Universal Binary。已在 Apple Silicon 主机上构建、运行隔离测试，**未完成 Intel 与全部 macOS 版本的实机兼容验证**。SMC 控制取决于硬件是否暴露支持的键，不支持时应停止控制并报告错误。
+The script builds for the host architecture with a macOS 13 minimum target, not a Universal Binary. Builds and isolated tests have been verified on Apple Silicon; **Intel and every supported macOS version have not been tested on physical devices**. SMC control requires supported hardware keys; unsupported hardware should report an error rather than proceed.
 
-构建产物为本地 ad-hoc 签名，未做 Developer ID 签名或公证；不要为了运行下载文件而关闭系统安全检查。跨机器发行前应完成正式签名、公证与目标设备测试。
+Builds are locally ad-hoc signed, without Developer ID signing or notarization. Do not disable system security checks to run downloaded files. Cross-machine distribution requires proper signing, notarization and target-device testing.
 
-### 第一次使用
+### First run
 
-1. 打开 App，点击菜单栏电池图标查看状态。App 不显示 Dock 图标。
-2. 需要电源控制时，在设置中选择「迁移／授权电源控制…」，通过系统管理员授权。
-3. 核对阈值与温度上限，阅读风险提示后再启用自动耗电；不需要此功能时保持关闭。
-4. 若要隐藏原生电池图标，通过设置入口前往系统设置取消显示；菜单位置随 macOS 版本而不同。
-5. 关闭设置窗口不会退出 App；菜单中选择「退出」才会停止内置监测并执行清理。
+1. Open the app and click its menu bar battery icon. There is no Dock icon.
+2. Open **Settings → Language** to choose your interface language.
+3. When hardware control is needed, choose **Migrate / Authorize power control…** in Settings and approve the system administrator prompt.
+4. Check thresholds and the temperature limit. Enable auto discharge only after reading the warning; otherwise leave it off.
+5. To hide the native battery icon, use the Settings shortcut and change it yourself in System Settings. Its location varies by macOS version.
+6. Closing Settings keeps the app running. Choose Quit to stop monitoring and perform cleanup.
 
-**已有 BatteryBar 安装：** 请先正常退出旧版，再打开 BatteryCare，避免两份 App 同时运行。为了兼容旧配置和登录项身份，暂保留 `com.local.batterybar` bundle ID 与 `~/Library/Application Support/BatteryBar/config.json` 配置路径；显示名称和可执行文件已更新为 BatteryCare。不要在运行中移动 App，迁移位置后请重新确认登录项。
+**Upgrading from BatteryBar:** quit the old app normally before opening BatteryCare. The bundle ID `com.local.batterybar` and configuration path `~/Library/Application Support/BatteryBar/config.json` are retained for compatibility; the display name and executable are BatteryCare. Do not move the app while it runs. Recheck its login item after moving it.
 
 <a id="architecture"></a>
-## 🏗️ 技术与架构
+## 🏗️ Technology and architecture
 
 ```text
-菜单栏 / 半透明面板（普通用户权限）
-              │
-      Swift actor 内置引擎
-       ├── 系统电池信息 / 内置 iSMC 温度读取
-       ├── 阈值策略 / 单线程负载 / 防睡眠断言
-       └── 令牌鉴权 Unix socket
-                     │
-           BatteryHardware（管理员权限）
-             固定命令 → SMC 适配器控制
+Menu bar / translucent panel (normal user)
+                  │
+         Built-in Swift actor engine
+          ├── System battery data / bundled iSMC temperature reader
+          ├── Threshold policy / bounded CPU load / sleep assertion
+          └── Token-authenticated Unix socket
+                           │
+                 BatteryHardware (administrator)
+                   Fixed commands → SMC adapter control
 ```
 
-| 层级 | 技术与职责 |
+| Layer | Responsibilities |
 | --- | --- |
-| 界面 | SwiftUI、AppKit、NSStatusItem、锚定 NSPanel |
-| 内置引擎 | Swift concurrency、IOKit、电池采样、迟滞控制与生命周期 |
-| 硬件助手 | Go、gosmc、私有 socket、父进程检查与恢复租约 |
-| 温度工具 | 从随附源码构建的独立 iSMC 可执行文件 |
-| 登录与分发 | SMAppService、本机构建与 ad-hoc 签名 |
+| Interface | SwiftUI, AppKit, NSStatusItem, anchored NSPanel |
+| Engine | Swift concurrency, IOKit, sampling, hysteresis and lifecycle |
+| Hardware helper | Go, gosmc, private socket, parent identity checks and recovery lease |
+| Temperature | Separate iSMC executable built from included source |
+| Language | Four complete JSON catalogs, saved selection, live UI updates |
+| Login / distribution | SMAppService, local build and ad-hoc signing |
 
-### 目录结构
+### Repository layout
 
 ```text
-Sources/                 # 原生界面、内置引擎与确定性图标生成器
-Hardware/                # 受限硬件助手、测试与 vendored 依赖（GPL-2.0）
-Dependencies/iSMC/        # 独立温度工具的完整源码及依赖（GPL-3.0）
-tests/                   # Swift 模型、图标状态、定位与引擎隔离测试
-assets/                  # 品牌 Logo：SVG / PNG / ICNS
-docs/                    # 安全、设计与开发说明
-build.sh                 # 构建自包含 App，不安装系统服务
-test.sh                  # 运行 Go race 与 Swift 隔离测试
-dist/                    # 本机构建产物，不纳入版本控制
+Sources/                 # Native UI, engine, localization and icon renderer
+Resources/Localizations/ # en / zh-Hans / zh-Hant / ja UI catalogs
+Hardware/                # Restricted helper, tests and vendored dependencies (GPL-2.0)
+Dependencies/iSMC/        # Temperature tool and full dependencies (GPL-3.0)
+tests/                   # Model, icon, placement, engine and localization tests
+assets/                  # SVG / PNG / ICNS branding
+docs/                    # Safety, design and development notes
+README*.md               # English, Simplified Chinese, Traditional Chinese and Japanese
+build.sh                 # Build a self-contained app; no system service installation
+test.sh                  # Go race detector and isolated Swift tests
+dist/                    # Local output; not tracked in Git
 ```
 
 <a id="docs"></a>
-## 📚 文档与安全边界
+## 📚 Documentation and safety boundaries
 
-| 文档 | 内容 |
+The detailed supporting documents below are currently in Simplified Chinese. All four READMEs cover setup, language selection, key risks and compatibility limits.
+
+| Document | Contents |
 | --- | --- |
-| [安全说明](./docs/SECURITY.md) | 管理员权限、负载风险、恢复机制与已知限制 |
-| [开发指南](./docs/DEVELOPMENT.md) | 构建、测试、配置兼容与分发 |
-| [设计说明](./docs/DESIGN.md) | 原创 Logo、原生材质与状态图标语义 |
-| [第三方声明](./THIRD_PARTY_NOTICES.md) | 独立可执行文件及 vendored 依赖的许可证 |
+| [Safety notes](./docs/SECURITY.md) | Privileges, CPU load risks, recovery and limitations |
+| [Development](./docs/DEVELOPMENT.md) | Build, tests, localization, compatibility and distribution |
+| [Design](./docs/DESIGN.md) | Original artwork, native materials and status icon semantics |
+| [Third-party notices](./THIRD_PARTY_NOTICES.md) | Licenses for separate executables and vendored dependencies (English) |
 
-**恢复适配器 ≠ 强制充电。** macOS、硬件和其他电池软件仍可能限制充电。恢复逻辑属于软件层面的尽力保证，无法覆盖断电、硬件故障或助手同时被强制终止等情况。不建议与其他主动控制适配器的工具同时启用。
+**Restoring the adapter does not force charging.** macOS, hardware and other battery tools can still limit charging. Recovery is a best-effort software mechanism, not a guarantee against power loss, hardware failure or the helper being forcibly killed. Avoid simultaneous active adapter control by multiple tools.
 
 <a id="contributing"></a>
-## 🤝 参与贡献
+## 🤝 Contributing
 
-欢迎提交 Issues 与 Pull Requests。提交前运行 `./test.sh` 与 `./build.sh`，说明设备架构、macOS 版本、变更范围与验证方法。涉及硬件控制的变更必须描述失败处理与恢复行为；自动化测试应使用 mock，不能在 CI 中写入真实 SMC。
+Issues and pull requests are welcome. Run `./test.sh` and `./build.sh`, and report architecture, macOS version, scope and verification. Update all four catalogs and READMEs when introducing user-facing text. Hardware changes must describe failure and recovery behavior; automated tests must use mocks rather than write real SMC state in CI.
 
-不要提交个人配置、管理员密码、会话令牌、运行日志、证书私钥或签名凭据。问题反馈应先脱敏。详见[贡献指南](./CONTRIBUTING.md)。
+Never commit personal configuration, administrator passwords, session tokens, runtime logs, private keys or signing credentials. Redact reports first. See [Contributing](./CONTRIBUTING.md) (Simplified Chinese).
 
-## 📄 许可证与致谢
+## 📄 License and acknowledgments
 
-第一方 Swift 应用、文档与原创品牌素材以 [GPL-3.0-or-later](./LICENSE) 发布；`Hardware/` 助手保留其 [GPL-2.0](./Hardware/LICENSE) 许可，`Dependencies/iSMC/` 与各 vendor 目录遵循各自许可证，详见[第三方声明](./THIRD_PARTY_NOTICES.md)。它们是分开构建、通过 IPC 或子进程调用的程序，不应将整个源码树标记为单一 MIT 许可。
+First-party Swift code, documentation and original artwork are [GPL-3.0-or-later](./LICENSE). The `Hardware/` helper retains [GPL-2.0](./Hardware/LICENSE); `Dependencies/iSMC/` and each vendor directory retain their own licenses. See [Third-party notices](./THIRD_PARTY_NOTICES.md). These programs are built separately and communicate through IPC or subprocesses; the entire tree must not be relabeled as MIT.
 
-感谢 [gosmc](https://github.com/charlie0129/gosmc) 与 [iSMC](https://github.com/dkorunic/iSMC) 项目。视觉取向借鉴 macOS 原生材质与 BetterDisplay 的菜单栏交互，未使用 Apple 或 BetterDisplay 的商标图形及源码；项目与它们无隶属关系。
+Thanks to [gosmc](https://github.com/charlie0129/gosmc) and [iSMC](https://github.com/dkorunic/iSMC). The visual direction draws on native macOS materials and BetterDisplay-style menu bar interaction, without Apple or BetterDisplay trademark artwork or source code. BatteryCare is independent and unaffiliated.

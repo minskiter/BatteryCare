@@ -16,7 +16,7 @@ import Foundation
         precondition(!model.batterySymbol.contains("bolt"))
         print("PASS external power without charging has no lightning")
         model.status?.battery.charging_state = "charged"
-        precondition(!model.batterySymbol.contains("bolt") && model.chargingDescription.contains("未在充电"))
+        precondition(!model.batterySymbol.contains("bolt") && model.chargingDescription.contains(L10n.text("未在充电")))
         print("PASS fully charged does not show charging lightning")
         model.status?.config.auto_discharge_enabled = false
         model.status?.battery.is_charging = true

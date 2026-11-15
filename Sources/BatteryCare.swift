@@ -37,6 +37,12 @@ enum BatteryIcon {
 }
 
 @MainActor final class BatteryModel: ObservableObject {
+    @Published var language = L10n.language
+    func setLanguage(_ value: AppLanguage, persist: Bool = true) {
+        L10n.setLanguage(value, persist: persist)
+        language = value
+        onUpdate?()
+    }
     @Published var status: Snapshot?
     @Published var connected = false
     @Published var busy = false
@@ -57,18 +63,18 @@ enum BatteryIcon {
         BatteryIcon.symbol(percentage: connected ? status?.battery.percentage : nil, isCharging: isCharging)
     }
     var chargingDescription: String {
-        guard connected, let battery = status?.battery else { return "充电状态未知" }
-        if battery.is_charging == true { return "正在充电" }
-        if battery.charging_state == "charged" { return "已充满 · 未在充电" }
-        if battery.is_charging == false { return "未在充电" }
-        return "充电状态未知"
+        guard connected, let battery = status?.battery else { return L10n.text("充电状态未知") }
+        if battery.is_charging == true { return L10n.text("正在充电") }
+        if battery.charging_state == "charged" { return L10n.text("已充满 · 未在充电") }
+        if battery.is_charging == false { return L10n.text("未在充电") }
+        return L10n.text("充电状态未知")
     }
     var mode: String {
-        guard connected, let s = status else { return "内置服务启动中" }
-        if !s.config.auto_discharge_enabled { return "自动耗电已关闭" }
-        if s.auto_discharge.cpu_load_active { return "正在自动耗电" }
-        if s.auto_discharge.cycle_active { return "温度保护 · 暂停负载" }
-        return "已开启 · 等待电量阈值"
+        guard connected, let s = status else { return L10n.text("内置服务启动中") }
+        if !s.config.auto_discharge_enabled { return L10n.text("自动耗电已关闭") }
+        if s.auto_discharge.cpu_load_active { return L10n.text("正在自动耗电") }
+        if s.auto_discharge.cycle_active { return L10n.text("温度保护 · 暂停负载") }
+        return L10n.text("已开启 · 等待电量阈值")
     }
     init(session: URLSession = .shared, poll: Bool = true) {
         self.session = session
@@ -124,9 +130,9 @@ enum BatteryIcon {
         guard connected, !busy else { return }
         if value {
             let alert = NSAlert()
-            alert.messageText = "开启自动耗电？"
-            alert.informativeText = "达到开始阈值后，后台会禁用适配器并增加 CPU 负载。温度过高时会暂停负载；关闭开关会停止负载并尝试恢复充电。"
-            alert.addButton(withTitle: "开启"); alert.addButton(withTitle: "取消")
+            alert.messageText = L10n.text("开启自动耗电？")
+            alert.informativeText = L10n.text("达到开始阈值后，后台会禁用适配器并增加 CPU 负载。温度过高时会暂停负载；关闭开关会停止负载并尝试恢复充电。")
+            alert.addButton(withTitle: L10n.text("开启")); alert.addButton(withTitle: L10n.text("取消"))
             NSApp.activate(ignoringOtherApps: true)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
@@ -234,17 +240,17 @@ struct BatteryPanel: View {
                     Text("BatteryCare").font(.system(size: 17, weight: .semibold))
                     HStack(spacing: 5) {
                         Circle().fill(model.connected ? .green : .orange).frame(width: 5, height: 5)
-                        Text(model.connected ? "电池控制中心" : "监测启动中").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(model.connected ? L10n.text("电池控制中心") : L10n.text("监测启动中")).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
                 Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("刷新状态").disabled(model.busy)
+                    .buttonStyle(.borderless).help(L10n.text("刷新状态")).disabled(model.busy)
             }
             Card {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("当前电量").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(L10n.text("当前电量")).font(.system(size: 11)).foregroundStyle(.secondary)
                         Text(model.batteryLabel).font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit()
                         Label(powerText, systemImage: model.status?.battery.is_plugged_in == true ? "powerplug.fill" : "battery.50percent")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -262,41 +268,41 @@ struct BatteryPanel: View {
             }
             Card {
                 Toggle(isOn: Binding(get: { model.enabled }, set: { model.toggle($0) })) {
-                    Label("自动耗电", systemImage: "arrow.down.circle").font(.system(size: 13, weight: .semibold))
+                    Label(L10n.text("自动耗电"), systemImage: "arrow.down.circle").font(.system(size: 13, weight: .semibold))
                 }.toggleStyle(.switch).controlSize(.small).disabled(!model.connected || model.busy)
                 HStack {
-                    Text(model.busy ? "正在同步…" : model.mode).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(model.busy ? L10n.text("正在同步…") : model.mode).font(.system(size: 11)).foregroundStyle(.secondary)
                     Spacer()
                     if let c = model.status?.config { Text("\(c.low_battery_threshold)% – \(c.high_battery_threshold)%").font(.system(size: 11, weight: .medium)).monospacedDigit() }
                 }
             }
             HStack(spacing: 10) {
-                Metric(icon: "thermometer.medium", title: "CPU 温度", value: model.status?.temperature.cpu_celsius.map { String(format: "%.1f°", $0) } ?? "—",
-                       hint: model.status.map { "保护上限 \(Int($0.temperature.limit_celsius))°C" } ?? "等待内置监测")
-                Metric(icon: "heart", title: "电池健康", value: model.status?.battery.health_percentage.map { "\($0)%" } ?? "—",
-                       hint: model.status?.battery.cycle_count.map { "\($0) 次充电循环" } ?? "暂无循环数据")
+                Metric(icon: "thermometer.medium", title: L10n.text("CPU 温度"), value: model.status?.temperature.cpu_celsius.map { String(format: "%.1f°", $0) } ?? "—",
+                       hint: model.status.map { L10n.format("temperature.limit", String(Int($0.temperature.limit_celsius))) } ?? L10n.text("等待内置监测"))
+                Metric(icon: "heart", title: L10n.text("电池健康"), value: model.status?.battery.health_percentage.map { "\($0)%" } ?? "—",
+                       hint: model.status?.battery.cycle_count.map { L10n.format("battery.cycles", String($0)) } ?? L10n.text("暂无循环数据"))
             }
             if let error = model.message ?? model.status?.service.last_error {
-                Text(error).font(.system(size: 11)).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).lineLimit(4)
+                Text(L10n.text(error)).font(.system(size: 11)).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).lineLimit(4)
             }
             if !model.connected {
-                Button("重试内置监测") { Task { await model.refresh() } }.buttonStyle(.borderless)
-                Text("无需安装外置服务；打开 App 即开始监测。").font(.system(size: 10)).foregroundStyle(.secondary)
+                Button(L10n.text("重试内置监测")) { Task { await model.refresh() } }.buttonStyle(.borderless)
+                Text(L10n.text("无需安装外置服务；打开 App 即开始监测。")).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Divider().opacity(0.6)
             HStack {
-                Button(action: settings) { Label("设置", systemImage: "slider.horizontal.3") }.buttonStyle(.borderless)
+                Button(action: settings) { Label(L10n.text("设置"), systemImage: "slider.horizontal.3") }.buttonStyle(.borderless)
                 Spacer()
-                Text(model.connected ? "每 5 秒同步" : "离线 · 数据可能已过期").font(.system(size: 10)).foregroundStyle(.tertiary)
-                Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }.buttonStyle(.borderless).help("退出 App，并停止耗电、恢复适配器")
+                Text(model.connected ? L10n.text("每 5 秒同步") : L10n.text("离线 · 数据可能已过期")).font(.system(size: 10)).foregroundStyle(.tertiary)
+                Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }.buttonStyle(.borderless).help(L10n.text("退出 App，并停止耗电、恢复适配器"))
             }.font(.system(size: 11)).foregroundStyle(.secondary)
-        }.padding(18).frame(width: 360).background(Glass()).preferredColorScheme(nil)
+        }.padding(18).frame(width: 360).background(Glass()).preferredColorScheme(nil).environment(\.locale, Locale(identifier: model.language.rawValue))
     }
     var powerText: String {
-        guard let b = model.status?.battery else { return "等待电池数据" }
-        if b.is_charging == true { return "正在充电" }
-        if b.is_plugged_in == true { return b.charging_state == "charged" ? "电量已充满 · 外接电源" : "已连接外接电源" }
-        return "使用电池电源"
+        guard let b = model.status?.battery else { return L10n.text("等待电池数据") }
+        if b.is_charging == true { return L10n.text("正在充电") }
+        if b.is_plugged_in == true { return b.charging_state == "charged" ? L10n.text("电量已充满 · 外接电源") : L10n.text("已连接外接电源") }
+        return L10n.text("使用电池电源")
     }
 }
 
@@ -309,59 +315,67 @@ struct SettingsPanel: View {
             HStack {
                 Image(systemName: "slider.horizontal.3").font(.title2).foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("BatteryCare 设置").font(.title3.bold())
-                    Text("原生菜单栏 · App 内置控制引擎").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.text("BatteryCare 设置")).font(.title3.bold())
+                    Text(L10n.text("原生菜单栏 · App 内置控制引擎")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Card {
-                Toggle("登录时打开菜单栏 App", isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
-                Text("登录时启动 App 和内置监测；自动耗电不会随启动自动开启。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Picker(L10n.text("language.title"), selection: Binding(get: { model.language }, set: { model.setLanguage($0) })) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+                Text(L10n.text("language.hint")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Card {
+                Toggle(L10n.text("登录时打开菜单栏 App"), isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
+                Text(L10n.text("登录时启动 App 和内置监测；自动耗电不会随启动自动开启。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Divider()
                 HStack {
-                    Label("系统原生电池图标", systemImage: "menubar.rectangle")
+                    Label(L10n.text("系统原生电池图标"), systemImage: "menubar.rectangle")
                     Spacer()
-                    Button("隐藏／显示…") { model.openNativeBatterySettings() }
-                        .help("打开系统菜单栏设置，由你选择是否显示原生电池图标")
+                    Button(L10n.text("隐藏／显示…")) { model.openNativeBatterySettings() }
+                        .help(L10n.text("打开系统菜单栏设置，由你选择是否显示原生电池图标"))
                 }
-                Text("在系统设置 → 菜单栏中，取消勾选「电池」即可隐藏原生图标。旧版 macOS 位于控制中心 → 电池 → 在菜单栏中显示。不影响 BatteryCare 或实际充电。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(L10n.text("在系统设置 → 菜单栏中，取消勾选「电池」即可隐藏原生图标。旧版 macOS 位于控制中心 → 电池 → 在菜单栏中显示。不影响 BatteryCare 或实际充电。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if draft != nil {
                 Card {
-                    Text("运行参数").font(.headline)
-                    numberRow("停止耗电阈值", key: \.low_battery_threshold, unit: "%")
-                    numberRow("开始耗电阈值", key: \.high_battery_threshold, unit: "%")
+                    Text(L10n.text("运行参数")).font(.headline)
+                    numberRow(L10n.text("停止耗电阈值"), key: \.low_battery_threshold, unit: "%")
+                    numberRow(L10n.text("开始耗电阈值"), key: \.high_battery_threshold, unit: "%")
                     HStack {
-                        Text("CPU 温度上限"); Spacer()
-                        TextField("温度", value: Binding(get: { draft?.temp_limit ?? 80 }, set: { draft?.temp_limit = $0; dirty = true }), format: .number)
+                        Text(L10n.text("CPU 温度上限")); Spacer()
+                        TextField(L10n.text("温度"), value: Binding(get: { draft?.temp_limit ?? 80 }, set: { draft?.temp_limit = $0; dirty = true }), format: .number)
                             .frame(width: 75).multilineTextAlignment(.trailing)
                         Text("°C").foregroundStyle(.secondary).frame(width: 25)
                     }
-                    numberRow("过热冷却等待", key: \.cool_down_sleep, unit: "秒")
-                    numberRow("控制轮询间隔", key: \.loop_interval, unit: "秒")
+                    numberRow(L10n.text("过热冷却等待"), key: \.cool_down_sleep, unit: L10n.text("秒"))
+                    numberRow(L10n.text("控制轮询间隔"), key: \.loop_interval, unit: L10n.text("秒"))
                     Divider()
-                    Text("达到高阈值开始耗电，降至低阈值停止。增加 CPU 负载会消耗电量并产生热量；仅在确有需要时开启。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.text("达到高阈值开始耗电，降至低阈值停止。增加 CPU 负载会消耗电量并产生热量；仅在确有需要时开启。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
-                        Button("重新载入") { draft = model.status?.config; dirty = false }
+                        Button(L10n.text("重新载入")) { draft = model.status?.config; dirty = false }
                         Spacer()
-                        Button("保存参数") { if let draft { model.save(draft) } }
+                        Button(L10n.text("保存参数")) { if let draft { model.save(draft) } }
                             .buttonStyle(.borderedProminent).tint(.green).disabled(!dirty || model.busy || !model.connected)
                     }
                 }
             } else {
-                Text("内置监测启动后即可编辑参数。").foregroundStyle(.secondary)
+                Text(L10n.text("内置监测启动后即可编辑参数。")).foregroundStyle(.secondary)
             }
             if let message = model.message ?? model.status?.service.last_error {
-                Text(message).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                Text(L10n.text(message)).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
             }
             HStack {
-                Button("迁移／授权电源控制…") { model.prepareControl() }.disabled(model.busy)
+                Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.0.0").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.1.0").font(.caption).foregroundStyle(.tertiary)
             }
-            Text(model.serviceInfo).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }.textFieldStyle(.roundedBorder).padding(24).frame(width: 470).background(Glass())
+            Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.environment(\.locale, Locale(identifier: model.language.rawValue)).textFieldStyle(.roundedBorder).padding(24).frame(width: 470).background(Glass())
             .onAppear { draft = model.status?.config }
             .onChange(of: model.status?.config) { next in if next == draft { dirty = false }; if !dirty { draft = next } }
     }
@@ -435,7 +449,7 @@ final class StatusPanel: NSPanel {
         panelScroll.hasVerticalScroller = true; panelScroll.autohidesScrollers = true
         panelScroll.scrollerStyle = .overlay; panelScroll.documentView = panelHost
         panel = StatusPanel(contentRect: panelScroll.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "BatteryCare 电池控制"
+        panel.title = L10n.text("BatteryCare 电池控制")
         panel.contentView = panelScroll
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false
@@ -484,11 +498,13 @@ final class StatusPanel: NSPanel {
         }
     }
     func updateStatus() {
+        panel?.title = L10n.text("BatteryCare 电池控制")
+        settingsWindow?.title = L10n.text("BatteryCare 设置")
         let image = NSImage(systemSymbolName: model.batterySymbol, accessibilityDescription: "BatteryCare · " + model.chargingDescription)
         image?.isTemplate = true; statusItem?.button?.image = image
         statusItem?.button?.title = " " + (model.connected ? model.batteryLabel : "—")
         statusItem?.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        statusItem?.button?.toolTip = "BatteryCare · \(model.chargingDescription)\n\(model.mode)\n左键打开面板，右键快速操作"
+        statusItem?.button?.toolTip = "BatteryCare · \(model.chargingDescription)\n\(model.mode)\n" + L10n.text("panel.actions")
     }
     @objc func clicked(_ sender: Any?) {
         if NSApp.currentEvent?.type == .rightMouseUp { showMenu(); return }
@@ -506,11 +522,11 @@ final class StatusPanel: NSPanel {
     func showMenu() {
         hidePanel()
         let menu = NSMenu()
-        let toggle = NSMenuItem(title: "自动耗电", action: #selector(quickToggle), keyEquivalent: "")
+        let toggle = NSMenuItem(title: L10n.text("自动耗电"), action: #selector(quickToggle), keyEquivalent: "")
         toggle.target = self; toggle.state = model.enabled ? .on : .off; toggle.isEnabled = model.connected && !model.busy
         menu.autoenablesItems = false; menu.addItem(toggle); menu.addItem(.separator())
-        let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ","); settings.target = self; menu.addItem(settings)
-        let quit = NSMenuItem(title: "退出 App 并停止耗电", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
+        let settings = NSMenuItem(title: L10n.text("设置…"), action: #selector(openSettings), keyEquivalent: ","); settings.target = self; menu.addItem(settings)
+        let quit = NSMenuItem(title: L10n.text("退出 App 并停止耗电"), action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
         statusItem.menu = menu; statusItem.button?.performClick(nil); statusItem.menu = nil
     }
     @objc func quickToggle() { model.toggle(!model.enabled) }
@@ -519,9 +535,12 @@ final class StatusPanel: NSPanel {
     func showSettings() {
         hidePanel()
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: SettingsPanel(model: model))
+            let height = min(840, (NSScreen.main?.visibleFrame.height ?? 900) - 80)
+            let controller = NSHostingController(rootView: ScrollView {
+                SettingsPanel(model: model)
+            }.frame(width: 470, height: height))
             let window = NSWindow(contentViewController: controller)
-            window.title = "BatteryCare 设置"; window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+            window.title = L10n.text("BatteryCare 设置"); window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
             window.titlebarAppearsTransparent = true; window.isOpaque = false; window.backgroundColor = .clear
             window.isReleasedWhenClosed = false; window.center(); settingsWindow = window
         }
@@ -534,9 +553,9 @@ final class StatusPanel: NSPanel {
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "耗电负载已停止，但无法确认适配器已恢复"
-                alert.informativeText = error.localizedDescription + "\n可返回 App 重试；若仍退出，内置助手会在连接失效后尝试恢复适配器。"
-                alert.addButton(withTitle: "返回 App"); alert.addButton(withTitle: "仍退出")
+                alert.messageText = L10n.text("耗电负载已停止，但无法确认适配器已恢复")
+                alert.informativeText = L10n.text(error.localizedDescription) + "\n" + L10n.text("quit.recovery")
+                alert.addButton(withTitle: L10n.text("返回 App")); alert.addButton(withTitle: L10n.text("仍退出"))
                 NSApp.activate(ignoringOtherApps: true)
                 sender.reply(toApplicationShouldTerminate: alert.runModal() == .alertSecondButtonReturn)
             }

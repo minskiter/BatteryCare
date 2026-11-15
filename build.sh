@@ -6,9 +6,10 @@ export MACOSX_DEPLOYMENT_TARGET=13.0
 export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=13.0"
 export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=13.0"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/Licenses"
+cp -R "$ROOT/Resources/Localizations" "$APP/Contents/Resources/"
 # The final app has no Python dependency and never starts a Python/HTTP server.
 xcrun swiftc -parse-as-library -swift-version 5 -O -target "$(uname -m)-apple-macosx13.0" \
-  "$ROOT/Sources/BatteryCare.swift" "$ROOT/Sources/IntegratedEngine.swift" -o "$APP/Contents/MacOS/BatteryCare" \
+  "$ROOT/Sources/Localization.swift" "$ROOT/Sources/BatteryCare.swift" "$ROOT/Sources/IntegratedEngine.swift" -o "$APP/Contents/MacOS/BatteryCare" \
   -framework AppKit -framework SwiftUI -framework ServiceManagement -framework IOKit
 (cd "$ROOT/Hardware" && CGO_ENABLED=1 go build -mod=vendor -trimpath -o "$APP/Contents/Helpers/BatteryHardware" .)
 (cd "$ROOT/Dependencies/iSMC" && CGO_ENABLED=1 go build -mod=vendor -trimpath -o "$APP/Contents/Helpers/iSMC" .)
@@ -17,8 +18,8 @@ install -m 644 "$ROOT/Dependencies/iSMC/LICENSE" "$APP/Contents/Resources/Licens
 install -m 644 "$ROOT/LICENSE" "$APP/Contents/Resources/Licenses/BatteryCare-GPL-3.0.txt"
 install -m 644 "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
 # Include complete corresponding source for the App and both GPL executables.
-tar -czf "$APP/Contents/Resources/CorrespondingSource.tar.gz" -C "$ROOT" \
-  Sources Hardware Dependencies/iSMC tests assets docs build.sh test.sh README.md LICENSE THIRD_PARTY_NOTICES.md CONTRIBUTING.md
+(cd "$ROOT" && tar -czf "$APP/Contents/Resources/CorrespondingSource.tar.gz" \
+  Sources Resources Hardware Dependencies/iSMC tests assets docs build.sh test.sh README*.md LICENSE THIRD_PARTY_NOTICES.md CONTRIBUTING.md CHANGELOG.md)
 /usr/bin/python3 - "$APP/Contents/Resources/battery.py" <<'PY'
 from pathlib import Path
 import sys
@@ -30,9 +31,9 @@ import plistlib, sys
 from pathlib import Path
 app = Path(sys.argv[1])
 info = dict(CFBundleName="BatteryCare", CFBundleDisplayName="BatteryCare", CFBundleIdentifier="com.local.batterybar",
-            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.0.0",
-            CFBundleVersion="5", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
-            CFBundleIconFile="AppIcon")
+            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.1.0",
+            CFBundleVersion="6", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
+            CFBundleIconFile="AppIcon", CFBundleDevelopmentRegion="en", CFBundleLocalizations=["en", "zh-Hans", "zh-Hant", "ja"])
 with open(app/"Contents/Info.plist", "wb") as f: plistlib.dump(info, f)
 PY
 xcrun swift "$ROOT/Sources/Icon.swift" "$APP/Contents/Resources"
