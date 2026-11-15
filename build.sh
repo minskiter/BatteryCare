@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/dist/BatteryCare.app"
+APP="${BATTERYCARE_APP_OUTPUT:-$ROOT/dist/BatteryCare.app}"
 export MACOSX_DEPLOYMENT_TARGET=13.0
 export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=13.0"
 export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=13.0"
@@ -31,8 +31,8 @@ import plistlib, sys
 from pathlib import Path
 app = Path(sys.argv[1])
 info = dict(CFBundleName="BatteryCare", CFBundleDisplayName="BatteryCare", CFBundleIdentifier="com.local.batterybar",
-            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.1.0",
-            CFBundleVersion="6", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
+            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.1.1",
+            CFBundleVersion="7", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
             CFBundleIconFile="AppIcon", CFBundleDevelopmentRegion="en", CFBundleLocalizations=["en", "zh-Hans", "zh-Hant", "ja"])
 with open(app/"Contents/Info.plist", "wb") as f: plistlib.dump(info, f)
 PY

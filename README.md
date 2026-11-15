@@ -67,6 +67,7 @@ Originally a `battery.py` utility, the current app runs its monitoring and contr
 
 - SwiftUI + AppKit translucent interface, following system appearance.
 - Original pearl-white rounded-square icon with a multicolor battery and white bolt; SVG, PNG and ICNS included.
+- Starts near the right-hand system icons when possible, and remembers manual ⌘-drag placement. Use **Settings → Menu bar position → Move right** to reset the hint without restarting monitoring. macOS controls the final order; exact adjacency to the system battery is not guaranteed.
 - Open at login and a shortcut to system battery icon settings. **Hiding the native icon is a manual action in System Settings.**
 
 <a id="workflows"></a>

@@ -83,5 +83,8 @@
   "language.title": "Language",
   "language.hint": "Changes apply immediately and are remembered. The system language is used on first launch.",
   "panel.actions": "Left-click for panel; right-click for quick actions",
-  "quit.recovery": "Return to the app to retry. If you quit anyway, the helper will attempt recovery after the connection expires."
+  "quit.recovery": "Return to the app to retry. If you quit anyway, the helper will attempt recovery after the connection expires.",
+  "menubar.position.title": "Menu bar position",
+  "menubar.position.right": "Move right",
+  "menubar.position.hint": "Starts near the right-hand system icons when possible. Hold ⌘ and drag to fine-tune; your position is remembered. macOS controls the final order."
 }

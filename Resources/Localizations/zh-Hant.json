@@ -83,5 +83,8 @@
   "language.title": "語言",
   "language.hint": "切換立即生效並自動儲存，首次啟動時跟隨系統語言。",
   "panel.actions": "左鍵開啟面板，右鍵快速操作",
-  "quit.recovery": "可返回 App 重試；若仍結束，內建助手會在連線失效後嘗試恢復電源轉接器。"
+  "quit.recovery": "可返回 App 重試；若仍結束，內建助手會在連線失效後嘗試恢復電源轉接器。",
+  "menubar.position.title": "選單列位置",
+  "menubar.position.right": "靠右放置",
+  "menubar.position.hint": "首次盡量靠近右側系統圖示。按住 ⌘ 拖移可微調，調整後會記住位置；最終排列由 macOS 決定。"
 }

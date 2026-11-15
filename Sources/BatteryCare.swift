@@ -55,6 +55,7 @@ enum BatteryIcon {
     private var refreshing = false
     private var timer: Timer?
     var onUpdate: (() -> Void)?
+    var onMoveMenuBarRight: (() -> Void)?
     let base = URL(string: "http://127.0.0.1:8765")!
     var enabled: Bool { connected && status?.config.auto_discharge_enabled == true }
     var batteryLabel: String { status?.battery.percentage.map { "\($0)%" } ?? "—" }
@@ -326,6 +327,13 @@ struct SettingsPanel: View {
                     }
                 }
                 Text(L10n.text("language.hint")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Divider()
+                HStack {
+                    Label(L10n.text("menubar.position.title"), systemImage: "menubar.rectangle")
+                    Spacer()
+                    Button(L10n.text("menubar.position.right")) { model.onMoveMenuBarRight?() }
+                }
+                Text(L10n.text("menubar.position.hint")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Card {
                 Toggle(L10n.text("登录时打开菜单栏 App"), isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
@@ -371,7 +379,7 @@ struct SettingsPanel: View {
                 Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.1.0").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.1.1").font(.caption).foregroundStyle(.tertiary)
             }
             Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -402,6 +410,20 @@ enum StatusPanelPlacement {
     }
 }
 
+// autosaveName is public AppKit API. Its preferred-position defaults key is an
+// AppKit implementation convention, used only as a best-effort initial hint in
+// our own preferences domain. Never rewrite Control Center or other apps' keys.
+enum MenuBarPosition {
+    static let autosaveName = "BatteryCare.MainBattery"
+    static let preferredPositionKey = "NSStatusItem Preferred Position " + autosaveName
+    static func prepare(defaults: UserDefaults = .standard, reset: Bool = false) {
+        // Seed once; later launches must respect the user's Command-drag choice.
+        if reset || defaults.object(forKey: preferredPositionKey) == nil {
+            defaults.set(1, forKey: preferredPositionKey)
+        }
+    }
+}
+
 final class StatusPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -424,9 +446,13 @@ final class StatusPanel: NSPanel {
             duplicate.activate(options: .activateIgnoringOtherApps); NSApp.terminate(nil); return
         }
         NSApp.setActivationPolicy(.accessory)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.target = self; statusItem.button?.action = #selector(clicked(_:))
-        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        configureStatusItem()
+        model.onMoveMenuBarRight = { [weak self] in
+            guard let self else { return }
+            self.hidePanel()
+            self.configureStatusItem(resetPosition: true)
+            self.updateStatus()
+        }
         configurePanel()
         model.onUpdate = { [weak self] in
             self?.updateStatus()
@@ -440,6 +466,15 @@ final class StatusPanel: NSPanel {
         if CommandLine.arguments.contains("--show") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.showPopover() }
         }
+    }
+    func configureStatusItem(resetPosition: Bool = false) {
+        // Remove first: AppKit may save the old position during removal.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        MenuBarPosition.prepare(reset: resetPosition)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.autosaveName = MenuBarPosition.autosaveName
+        statusItem.button?.target = self; statusItem.button?.action = #selector(clicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
     func configurePanel() {
         panelHost = NSHostingView(rootView: BatteryPanel(model: model) { [weak self] in self?.showSettings() })

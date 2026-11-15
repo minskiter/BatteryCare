@@ -32,3 +32,12 @@ App Resources 包含完整的对应源码归档和第三方许可证。发布二
 首次启动匹配系统首选语言，支持简繁脚本与台湾、香港、澳门地区识别；无匹配时回落到英语。用户在「设置 → 语言」中的明确选择通过 UserDefaults 的 `BatteryCare.language` 保存，与电源参数 JSON 分离。语言变化只更新展示，不重建引擎、不改变耗电开关、不清空设置草稿。已存储的引擎诊断在展示时翻译，底层工具或系统返回的技术诊断保留原文。
 
 `LocalizationTests` 检查四份文案的键集合、非空值、占位符、语言匹配、保存偏好优先级、复合错误和即时模型切换。测试使用隔离的 UserDefaults suite，不改用户语言偏好，不执行硬件写入。
+
+
+## 菜单栏位置（2.1.1）
+
+通过公开的 `NSStatusItem.autosaveName` 使用稳定标识 `BatteryCare.MainBattery`，以便 AppKit 保存用户通过 ⌘ 拖动的位置。首次创建时，仅在本 App 的 UserDefaults 域内为 AppKit 的 `NSStatusItem Preferred Position <name>` 约定键写入靠右提示；此键不是正式的位置控制 API，因此只作为尽力提示，系统可能忽略。不读写 Control Center 或其他 App 的位置，不假设原生电池图标可被查询或替换。
+
+设置中的「靠右放置」会仅移除并重建菜单栏项，再应用位置提示；内置引擎、负载、监测计时器和设置草稿不重建。普通启动保留已保存的位置，不反复覆盖手动拖动的结果。精确顺序由 macOS 决定，支持按住 ⌘ 手动拖动。
+
+`BATTERYCARE_APP_OUTPUT=/absolute/path/BatteryCare.app ./build.sh` 可以构建到独立目录，避免覆盖正在运行的 App。更新运行中的应用前请先正常退出；启动后自动耗电仍按安全策略保持关闭。

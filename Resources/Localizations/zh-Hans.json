@@ -83,5 +83,8 @@
   "language.title": "语言",
   "language.hint": "切换立即生效并自动保存，首次启动时跟随系统语言。",
   "panel.actions": "左键打开面板，右键快速操作",
-  "quit.recovery": "可返回 App 重试；若仍退出，内置助手会在连接失效后尝试恢复适配器。"
+  "quit.recovery": "可返回 App 重试；若仍退出，内置助手会在连接失效后尝试恢复适配器。",
+  "menubar.position.title": "菜单栏位置",
+  "menubar.position.right": "靠右放置",
+  "menubar.position.hint": "首次尽量靠近右侧系统图标。按住 ⌘ 拖动可微调，调整后会记住位置；最终排列由 macOS 决定。"
 }

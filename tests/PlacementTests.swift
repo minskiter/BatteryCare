@@ -3,6 +3,18 @@ import AppKit
 
 @main struct PlacementTests {
     static func main() {
+        let suite = "BatteryCare.MenuBarPositionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        MenuBarPosition.prepare(defaults: defaults)
+        precondition(defaults.integer(forKey: MenuBarPosition.preferredPositionKey) == 1)
+        defaults.set(420, forKey: MenuBarPosition.preferredPositionKey)
+        MenuBarPosition.prepare(defaults: defaults)
+        precondition(defaults.integer(forKey: MenuBarPosition.preferredPositionKey) == 420)
+        MenuBarPosition.prepare(defaults: defaults, reset: true)
+        precondition(defaults.integer(forKey: MenuBarPosition.preferredPositionKey) == 1)
+        precondition(MenuBarPosition.autosaveName == "BatteryCare.MainBattery")
+        print("PASS right-side initial hint, remembered manual placement, explicit reset")
         let cases: [(String, NSRect, NSRect, NSSize)] = [
             ("main display", NSRect(x: 1200, y: 958, width: 64, height: 24), NSRect(x: 0, y: 38, width: 1512, height: 920), NSSize(width: 360, height: 500)),
             ("right edge", NSRect(x: 1490, y: 958, width: 22, height: 24), NSRect(x: 0, y: 38, width: 1512, height: 920), NSSize(width: 360, height: 500)),
