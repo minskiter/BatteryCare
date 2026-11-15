@@ -1,0 +1,12 @@
+.DS_Store
+/dist/
+/work/
+work-hardware-test
+__pycache__/
+*.pyc
+.env
+.env.*
+*.p12
+*.p8
+*.key
+*.mobileprovision

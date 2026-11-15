@@ -1,0 +1,3 @@
+# github.com/charlie0129/gosmc v0.0.0-20260712130932-24306d80e612
+## explicit; go 1.22
+github.com/charlie0129/gosmc
