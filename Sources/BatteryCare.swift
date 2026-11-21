@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import ServiceManagement
+import UniformTypeIdentifiers
 
 struct Config: Codable, Equatable {
     var auto_discharge_enabled: Bool
@@ -103,12 +104,20 @@ enum BatteryActivity: CaseIterable, Equatable {
     @Published var panelVisible = false
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     @Published var serviceInfo = "内置服务启动中…"
+    @Published var historyReport = BatteryHistoryReport()
+    @Published var historyPeriod = HistoryPeriod.day
+    @Published var historyError: String?
+    private let historyStore: BatteryHistoryStore?
+    private var historyLoaded = false
+    private var historyGeneration = 0
+    private var historyBoundaryPending = false
     private let engine: IntegratedEngine?
     private let session: URLSession
     private var refreshing = false
     private var timer: Timer?
     var onUpdate: (() -> Void)?
     var onMoveMenuBarRight: (() -> Void)?
+    var onShowStatistics: (() -> Void)?
     let base = URL(string: "http://127.0.0.1:8765")!
     var enabled: Bool { connected && status?.config.auto_discharge_enabled == true }
     var batteryLabel: String { status?.battery.percentage.map { "\($0)%" } ?? "—" }
@@ -134,6 +143,7 @@ enum BatteryActivity: CaseIterable, Equatable {
     init(session: URLSession = .shared, poll: Bool = true) {
         self.session = session
         engine = poll ? IntegratedEngine() : nil
+        historyStore = poll ? BatteryHistoryStore() : nil
         guard poll else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
@@ -173,13 +183,60 @@ enum BatteryActivity: CaseIterable, Equatable {
     func refresh() async {
         guard !refreshing, !busy else { return }
         refreshing = true; defer { refreshing = false }
+        let generation = historyGeneration
         do {
             let next = try JSONDecoder().decode(Snapshot.self, from: await request("api/status"))
             // Ignore a read started before a control write; the write refreshes again.
             guard !busy else { return }
             status = next; connected = true; lastSync = Date()
-        } catch { connected = false }
+            if let historyStore, next.service.running, generation == historyGeneration {
+                do {
+                    if historyBoundaryPending {
+                        await historyStore.breakContinuity()
+                        guard generation == historyGeneration else { return }
+                        historyBoundaryPending = false
+                    }
+                    let recorded = try await historyStore.record(next)
+                    if recorded || !historyLoaded { await refreshHistory() }
+                } catch { historyError = error.localizedDescription }
+            }
+        } catch { connected = false; historyDiscontinuity() }
         onUpdate?()
+    }
+    func historyDiscontinuity() {
+        historyGeneration += 1; historyBoundaryPending = true
+    }
+    func refreshHistory() async {
+        guard let historyStore else { return }
+        let period = historyPeriod
+        do {
+            let report = try await historyStore.report(period: period)
+            guard period == historyPeriod else { return }
+            historyReport = report; historyLoaded = true; historyError = nil
+        } catch { historyError = error.localizedDescription }
+    }
+    func exportHistory() {
+        guard let historyStore else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "BatteryCare-history.csv"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            do { try await historyStore.exportCSV().write(to: url, atomically: true, encoding: .utf8) }
+            catch { historyError = error.localizedDescription }
+        }
+    }
+    func clearHistory() {
+        guard let historyStore else { return }
+        let alert = NSAlert()
+        alert.messageText = L10n.text("history.clear.confirm")
+        alert.informativeText = L10n.text("history.clear.hint")
+        alert.addButton(withTitle: L10n.text("history.clear")); alert.addButton(withTitle: L10n.text("取消"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do { try await historyStore.clear(); await refreshHistory() }
+            catch { historyError = error.localizedDescription }
+        }
     }
     func toggle(_ value: Bool) {
         guard connected, !busy else { return }
@@ -409,6 +466,9 @@ struct BatteryPanel: View {
             Divider().opacity(0.6)
             HStack {
                 Button(action: settings) { Label(L10n.text("设置"), systemImage: "slider.horizontal.3") }.buttonStyle(.borderless)
+                Button { model.onShowStatistics?() } label: {
+                    Label(L10n.text("history.title"), systemImage: "chart.xyaxis.line")
+                }.buttonStyle(.borderless)
                 Spacer()
                 Text(model.connected ? L10n.text("每 5 秒同步") : L10n.text("离线 · 数据可能已过期")).font(.system(size: 10)).foregroundStyle(.tertiary)
                 Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }.buttonStyle(.borderless).help(L10n.text("退出 App，并停止耗电、恢复适配器"))
@@ -497,7 +557,7 @@ struct SettingsPanel: View {
                 Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.2.1").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.3.0").font(.caption).foregroundStyle(.tertiary)
             }
             Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -557,6 +617,8 @@ final class StatusPanel: NSPanel {
     var panelHost: NSHostingView<BatteryPanel>!
     var panelScroll: NSScrollView!
     var settingsWindow: NSWindow?
+    var statisticsWindow: NSWindow?
+    var powerObservers: [NSObjectProtocol] = []
     var globalMonitor: Any?
     var localMonitor: Any?
     var screenObserver: NSObjectProtocol?
@@ -569,6 +631,12 @@ final class StatusPanel: NSPanel {
         }
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
+        model.onShowStatistics = { [weak self] in self?.showStatistics() }
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
+            powerObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.model.historyDiscontinuity() }
+            })
+        }
         model.onMoveMenuBarRight = { [weak self] in
             guard let self else { return }
             self.hidePanel()
@@ -587,6 +655,9 @@ final class StatusPanel: NSPanel {
         if CommandLine.arguments.contains("--migrate-legacy") { model.prepareControl() }
         if CommandLine.arguments.contains("--show") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.showPopover() }
+        }
+        if CommandLine.arguments.contains("--show-statistics") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.showStatistics() }
         }
     }
     func configureStatusItem(resetPosition: Bool = false) {
@@ -658,6 +729,7 @@ final class StatusPanel: NSPanel {
     func updateStatus() {
         panel?.title = L10n.text("BatteryCare 电池控制")
         settingsWindow?.title = L10n.text("BatteryCare 设置")
+        statisticsWindow?.title = "BatteryCare · " + L10n.text("history.title")
         let image = NSImage(systemSymbolName: model.batterySymbol, accessibilityDescription: "BatteryCare · " + model.chargingDescription)
         image?.isTemplate = true; statusItem?.button?.image = image
         statusItem?.button?.title = " " + (model.connected ? model.batteryLabel : "—")
@@ -684,6 +756,8 @@ final class StatusPanel: NSPanel {
         let toggle = NSMenuItem(title: L10n.text("自动耗电"), action: #selector(quickToggle), keyEquivalent: "")
         toggle.target = self; toggle.state = model.enabled ? .on : .off; toggle.isEnabled = model.connected && !model.busy
         menu.autoenablesItems = false; menu.addItem(toggle); menu.addItem(.separator())
+        let statistics = NSMenuItem(title: L10n.text("history.title"), action: #selector(openStatistics), keyEquivalent: "s")
+        statistics.target = self; menu.addItem(statistics)
         let settings = NSMenuItem(title: L10n.text("设置…"), action: #selector(openSettings), keyEquivalent: ","); settings.target = self; menu.addItem(settings)
         let quit = NSMenuItem(title: L10n.text("退出 App 并停止耗电"), action: #selector(quitApp), keyEquivalent: "q"); quit.target = self; menu.addItem(quit)
         statusItem.menu = menu; statusItem.button?.performClick(nil); statusItem.menu = nil
@@ -691,6 +765,22 @@ final class StatusPanel: NSPanel {
     @objc func quickToggle() { model.toggle(!model.enabled) }
     @objc func quitApp() { NSApp.terminate(nil) }
     @objc func openSettings() { showSettings() }
+    @objc func openStatistics() { showStatistics() }
+    func showStatistics() {
+        hidePanel()
+        if statisticsWindow == nil {
+            let height = max(400, min(760, (NSScreen.main?.visibleFrame.height ?? 900) - 80))
+            let controller = NSHostingController(rootView: ScrollView {
+                BatteryStatisticsPanel(model: model)
+            }.frame(width: 660, height: height).background(Glass()))
+            let window = NSWindow(contentViewController: controller)
+            window.title = "BatteryCare · " + L10n.text("history.title")
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false; window.center(); statisticsWindow = window
+        }
+        Task { await model.refreshHistory() }
+        NSApp.activate(ignoringOtherApps: true); statisticsWindow?.makeKeyAndOrderFront(nil)
+    }
     func showSettings() {
         hidePanel()
         if settingsWindow == nil {
@@ -722,6 +812,7 @@ final class StatusPanel: NSPanel {
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
+        for observer in powerObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }

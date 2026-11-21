@@ -185,3 +185,11 @@ Thanks to [gosmc](https://github.com/charlie0129/gosmc) and [iSMC](https://githu
 ### Display awake during auto discharge
 
 While auto discharge is enabled and fresh battery/temperature checks are safe, BatteryCare temporarily prevents idle display and system sleep, including while waiting for the upper threshold. It does not wake an already-off display, simulate AC power, change global power settings, or override lid-close/manual/emergency sleep. Low battery, cooling, invalid sensors, disable, helper loss and exit release the assertion; a stalled refresh expires it after 15 seconds. Closed-lid external-display operation is not guaranteed when the adapter is cut off. Keep the lid open during discharge, or disable discharge and retain real AC power for macOS closed-display operation.
+
+### Local battery statistics (2.3)
+
+Open **Battery statistics** from the panel footer or right-click menu. Choose 24 hours, 7 days or 30 days for observed discharge, average rate, observed time, cycle-count change and a battery-level chart. Daily-average health uses up to 180 days, independently of the selected discharge window. Export a CSV or clear history with confirmation.
+
+Records reuse existing snapshots, at most once per minute per run, in `~/Library/Application Support/BatteryCare/history.sqlite3` (0600); old rows are pruned daily to approximately 365 days. Nothing is uploaded or backfilled. Sleep, app restarts, missing readings and gaps over 3 minutes are not counted as continuous observation. Consumption is an estimate in **percentage points**, not Wh, rated cycle life or lifetime cycles. The discharge rate requires 15 minutes and at least 2 points of observed battery-only discharge. Storage failure does not disable battery safety control.
+
+Health-below-80 forecasting uses a conservative, unvalidated trend heuristic: at least 28 elapsed days, 14 observed health days, a 2-point decline, stable negative regressions across both halves, and no major gaps or upward recalibration. Flat, recovering, stale or unstable data shows no date. The scenario range targets 79%, the first integer reading below 80%, and is **not** a confidence interval, guarantee or reason to deliberately wear the battery. A cycle-count rollback resets the health-fit history. The app cannot recover past records that were never collected.

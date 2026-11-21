@@ -9,8 +9,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/
 cp -R "$ROOT/Resources/Localizations" "$APP/Contents/Resources/"
 # The final app has no Python dependency and never starts a Python/HTTP server.
 xcrun swiftc -parse-as-library -swift-version 5 -O -target "$(uname -m)-apple-macosx13.0" \
-  "$ROOT/Sources/Localization.swift" "$ROOT/Sources/BatteryCare.swift" "$ROOT/Sources/IntegratedEngine.swift" -o "$APP/Contents/MacOS/BatteryCare" \
-  -framework AppKit -framework SwiftUI -framework ServiceManagement -framework IOKit
+  "$ROOT/Sources/Localization.swift" "$ROOT/Sources/BatteryCare.swift" "$ROOT/Sources/IntegratedEngine.swift" "$ROOT/Sources/BatteryHistory.swift" "$ROOT/Sources/HistoryPanel.swift" -o "$APP/Contents/MacOS/BatteryCare" \
+  -framework AppKit -framework SwiftUI -framework ServiceManagement -framework IOKit -lsqlite3
 (cd "$ROOT/Hardware" && CGO_ENABLED=1 go build -mod=vendor -trimpath -o "$APP/Contents/Helpers/BatteryHardware" .)
 (cd "$ROOT/Dependencies/iSMC" && CGO_ENABLED=1 go build -mod=vendor -trimpath -o "$APP/Contents/Helpers/iSMC" .)
 install -m 644 "$ROOT/Hardware/LICENSE" "$APP/Contents/Resources/Licenses/Hardware-GPL-2.0.txt"
@@ -31,8 +31,8 @@ import plistlib, sys
 from pathlib import Path
 app = Path(sys.argv[1])
 info = dict(CFBundleName="BatteryCare", CFBundleDisplayName="BatteryCare", CFBundleIdentifier="com.local.batterycare",
-            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.2.1",
-            CFBundleVersion="9", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
+            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.3.0",
+            CFBundleVersion="10", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
             CFBundleIconFile="AppIcon", CFBundleDevelopmentRegion="en", CFBundleLocalizations=["en", "zh-Hans", "zh-Hant", "ja"])
 with open(app/"Contents/Info.plist", "wb") as f: plistlib.dump(info, f)
 PY

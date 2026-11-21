@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.0 — 2026-11-21
+
+- Add local SQLite battery history, minute-level snapshot reuse, private file permissions, daily retention pruning, confirmed clearing and CSV export.
+- Add 24-hour/7-day/30-day discharge statistics and gap-aware, bounded-resolution charts; distinguish percentage points from Wh and actual cycle counts.
+- Add daily health trends and guarded below-80 scenario ranges, with explicit insufficient/unstable-data states and replacement/recalibration reset. No forecast derives from discharge speed.
+- Add a localized statistics window and menu/panel entries in four languages, with isolated storage, aggregation, chart and projection tests.
+
 ## 2.2.1 — 2026-11-21
 
 - Add temporary idle-display/system-sleep prevention while auto discharge is enabled, including safe threshold waiting.
