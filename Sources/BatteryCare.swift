@@ -382,10 +382,15 @@ struct BatteryPanel: View {
                 Toggle(isOn: Binding(get: { model.enabled }, set: { model.toggle($0) })) {
                     Label(L10n.text("自动耗电"), systemImage: "arrow.down.circle").font(.system(size: 13, weight: .semibold))
                 }.toggleStyle(.switch).controlSize(.small).disabled(!model.connected || model.busy)
+                    .help(L10n.text("耗电开关开启且安全条件满足时防止闲置熄屏；不模拟接通电源，不覆盖合盖睡眠。"))
                 HStack {
                     Text(model.busy ? L10n.text("正在同步…") : model.mode).font(.system(size: 11)).foregroundStyle(.secondary)
                     Spacer()
                     if let c = model.status?.config { Text("\(c.low_battery_threshold)% – \(c.high_battery_threshold)%").font(.system(size: 11, weight: .medium)).monospacedDigit() }
+                }
+                if model.status?.auto_discharge.caffeinate_active == true {
+                    Label(L10n.text("已防止闲置熄屏 · 不覆盖合盖睡眠"), systemImage: "display")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
             HStack(spacing: 10) {
@@ -492,7 +497,7 @@ struct SettingsPanel: View {
                 Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.2.0").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.2.1").font(.caption).foregroundStyle(.tertiary)
             }
             Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -175,3 +175,7 @@ dist/                    # 本機建置產物，不納入版本控制
 第一方 Swift 應用、文檔與原創品牌素材以 [GPL-3.0-or-later](./LICENSE) 發佈；`Hardware/` 助手保留其 [GPL-2.0](./Hardware/LICENSE) 許可，`Dependencies/iSMC/` 與各 vendor 目錄遵循各自授權條款，詳見[第三方聲明](./THIRD_PARTY_NOTICES.md)。它們是分開建置、通過 IPC 或子進程調用的程序，不應將整個原始碼樹標記為單一 MIT 許可。
 
 感謝 [gosmc](https://github.com/charlie0129/gosmc) 與 [iSMC](https://github.com/dkorunic/iSMC) 項目。視覺取向借鑒 macOS 原生材質與 BetterDisplay 的選單列交互，未使用 Apple 或 BetterDisplay 的商標圖形及原始碼；項目與它們無隸屬關係。
+
+### 自動耗電期間保持螢幕亮起
+
+耗電開關開啟且電量、溫度監測正常時，暫時防止閒置熄屏及系統閒置睡眠，等待上閾值期間亦適用。不會點亮已熄滅的螢幕、偽裝接通電源、修改全域電源設定或覆蓋闔蓋／手動／緊急睡眠。低電量、冷卻、感測器失效、關閉開關、助手斷線及退出會解除保亮；監測停滯時，系統斷言於 15 秒後到期。切斷變壓器後，不保證闔蓋外接顯示器繼續運作。耗電時請保持開蓋；需要闔蓋外接顯示器時，請關閉自動耗電並保留真實外部供電。

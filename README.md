@@ -181,3 +181,7 @@ Never commit personal configuration, administrator passwords, session tokens, ru
 First-party Swift code, documentation and original artwork are [GPL-3.0-or-later](./LICENSE). The `Hardware/` helper retains [GPL-2.0](./Hardware/LICENSE); `Dependencies/iSMC/` and each vendor directory retain their own licenses. See [Third-party notices](./THIRD_PARTY_NOTICES.md). These programs are built separately and communicate through IPC or subprocesses; the entire tree must not be relabeled as MIT.
 
 Thanks to [gosmc](https://github.com/charlie0129/gosmc) and [iSMC](https://github.com/dkorunic/iSMC). The visual direction draws on native macOS materials and BetterDisplay-style menu bar interaction, without Apple or BetterDisplay trademark artwork or source code. BatteryCare is independent and unaffiliated.
+
+### Display awake during auto discharge
+
+While auto discharge is enabled and fresh battery/temperature checks are safe, BatteryCare temporarily prevents idle display and system sleep, including while waiting for the upper threshold. It does not wake an already-off display, simulate AC power, change global power settings, or override lid-close/manual/emergency sleep. Low battery, cooling, invalid sensors, disable, helper loss and exit release the assertion; a stalled refresh expires it after 15 seconds. Closed-lid external-display operation is not guaranteed when the adapter is cut off. Keep the lid open during discharge, or disable discharge and retain real AC power for macOS closed-display operation.

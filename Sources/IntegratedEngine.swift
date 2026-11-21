@@ -217,6 +217,59 @@ enum DischargePolicy {
     }
 }
 
+// Prevent idle display/system sleep, not lid-close, manual or emergency sleep.
+// Independent of CPU work: safe waiting at the upper threshold stays awake too.
+enum DisplayAwakePolicy {
+    static func allows(config: Config, percentage: Int?, temperature: Double?,
+                       cooling: Bool, thermal: ProcessInfo.ThermalState) -> Bool {
+        guard config.auto_discharge_enabled, let percentage, (0...100).contains(percentage),
+              percentage > config.low_battery_threshold, let temperature,
+              temperature.isFinite, temperature > 0,
+              temperature < AdaptiveLoadPolicy.temperatureLimit(config.temp_limit), !cooling else { return false }
+        return thermal == .nominal || thermal == .fair
+    }
+}
+
+// Actor-confined, injectable for tests (no real power assertions in tests).
+// Replacing a short OS lease avoids depending on timeout-reset semantics.
+final class DisplayAwakeLease {
+    private var id: IOPMAssertionID?
+    private var expires = ContinuousClock.now
+    private let now: () -> ContinuousClock.Instant
+    private let create: ([String: Any]) -> IOPMAssertionID?
+    private let release: (IOPMAssertionID) -> Void
+    init(now: @escaping () -> ContinuousClock.Instant = { .now },
+         create: @escaping ([String: Any]) -> IOPMAssertionID? = DisplayAwakeLease.createSystem,
+         release: @escaping (IOPMAssertionID) -> Void = { _ = IOPMAssertionRelease($0) }) {
+        self.now = now; self.create = create; self.release = release
+    }
+    private static func createSystem(_ properties: [String: Any]) -> IOPMAssertionID? {
+        var id: IOPMAssertionID = 0
+        let status = IOPMAssertionCreateWithProperties(properties as CFDictionary, &id)
+        return status == kIOReturnSuccess && id != 0 ? id : nil
+    }
+    var isActive: Bool { id != nil && now() < expires }
+    @discardableResult func renew() -> Bool {
+        let start = now()
+        let next = create([
+            kIOPMAssertionTypeKey: kIOPMAssertionTypePreventUserIdleDisplaySleep,
+            kIOPMAssertionNameKey: "BatteryCare auto discharge display awake",
+            kIOPMAssertionLevelKey: NSNumber(value: kIOPMAssertionLevelOn),
+            kIOPMAssertionTimeoutKey: NSNumber(value: 15),
+            kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionRelease
+        ])
+        stop()
+        guard let next else { return false }
+        id = next; expires = start.advanced(by: .seconds(15))
+        return isActive
+    }
+    func stop() {
+        if let id { release(id) }
+        id = nil
+    }
+    deinit { stop() }
+}
+
 actor IntegratedEngine {
     private var config: Config
     private let configURL: URL
@@ -227,7 +280,7 @@ actor IntegratedEngine {
     private var adapterEnabled: Bool? = nil
     private var coolingUntil = Date.distantPast
     private var nextCycleCheck = Date.distantPast
-    private var assertion: IOPMAssertionID = 0
+    private let displayAwake = DisplayAwakeLease()
     private var serviceError: String?
     private var lastSnapshot: Snapshot?
     private var cachedHealth: Int?
@@ -266,7 +319,7 @@ actor IntegratedEngine {
     }
     func prepare(migrate: Bool) throws {
         try hardware.authorize(migrate: migrate)
-        stopLoad(); cycleActive = false; config.auto_discharge_enabled = false
+        stopLoad(); displayAwake.stop(); cycleActive = false; config.auto_discharge_enabled = false
         _ = try hardware.call("enable"); adapterEnabled = true; serviceError = nil
         try persist()
     }
@@ -297,14 +350,14 @@ actor IntegratedEngine {
             try hardware.authorize(migrate: FileManager.default.fileExists(atPath: Self.legacyPlist))
             adapterEnabled = try hardware.call("status")["enabled"] as? Bool; serviceError = nil
         } else {
-            stopLoad(); cycleActive = false
+            stopLoad(); displayAwake.stop(); cycleActive = false
             if hardware.isReady { _ = try hardware.call("enable"); adapterEnabled = true }
         }
         config.auto_discharge_enabled = enabled
         nextCycleCheck = .distantPast
         do { try persist() } catch {
             // A failed save must never leave a newly enabled stress cycle running.
-            config.auto_discharge_enabled = false; stopLoad(); cycleActive = false
+            config.auto_discharge_enabled = false; stopLoad(); displayAwake.stop(); cycleActive = false
             if hardware.isReady { _ = try? hardware.call("enable"); adapterEnabled = true }
             throw error
         }
@@ -320,11 +373,18 @@ actor IntegratedEngine {
         if running { control(percentage: battery.percentage, temperature: temp) }
         let result = Snapshot(service: .init(running: running, last_update: ISO8601DateFormatter().string(from: Date()), last_error: serviceError), battery: battery,
             temperature: .init(cpu_celsius: temp, limit_celsius: AdaptiveLoadPolicy.temperatureLimit(config.temp_limit)),
-            auto_discharge: .init(enabled: config.auto_discharge_enabled, cycle_active: cycleActive, cpu_load_active: load.isActive, caffeinate_active: assertion != 0 && load.isActive), config: config)
+            auto_discharge: .init(enabled: config.auto_discharge_enabled, cycle_active: cycleActive, cpu_load_active: load.isActive, caffeinate_active: displayAwake.isActive), config: config)
         lastSnapshot = result
         return result
     }
     private func control(percentage: Int?, temperature: Double?) {
+        defer {
+            if running, hardware.isReady,
+               DisplayAwakePolicy.allows(config: config, percentage: percentage, temperature: temperature,
+                                         cooling: Date() < coolingUntil, thermal: ProcessInfo.processInfo.thermalState) {
+                displayAwake.renew()
+            } else { displayAwake.stop() }
+        }
         let decision = DischargePolicy.decide(config: config, percentage: percentage, temperature: temperature, wasActive: cycleActive, cooling: Date() < coolingUntil, thermal: ProcessInfo.processInfo.thermalState)
         guard config.auto_discharge_enabled else { stopLoad(); cycleActive = false; return }
         guard hardware.isReady else {
@@ -370,24 +430,12 @@ actor IntegratedEngine {
             previous: load.isActive ? loadPlan : .stopped)
         guard loadPlan != .stopped else { stopLoad(); return }
         load.renew(plan: loadPlan)
-        if assertion == 0 {
-            let result = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "BatteryCare auto discharge" as CFString, &assertion)
-            if result != kIOReturnSuccess { assertion = 0 }
-        }
-        if assertion != 0 {
-            // Do not keep the Mac awake indefinitely if refreshes stop. The
-            // default timeout action turns the assertion off; a fresh safe
-            // sensor sample re-arms it together with the CPU worker lease.
-            IOPMAssertionSetProperty(assertion, kIOPMAssertionTimeoutKey as CFString, NSNumber(value: 15))
-            IOPMAssertionSetProperty(assertion, kIOPMAssertionLevelKey as CFString, NSNumber(value: kIOPMAssertionLevelOn))
-        }
     }
     private func stopLoad() {
         load.stop(); loadPlan = .stopped
-        if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
     }
     func shutdown() throws {
-        stopLoad(); cycleActive = false; config.auto_discharge_enabled = false
+        stopLoad(); displayAwake.stop(); cycleActive = false; config.auto_discharge_enabled = false
         try persist()
         try hardware.shutdown()
         running = false

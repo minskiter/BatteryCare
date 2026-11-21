@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
 import Foundation
+import IOKit.pwr_mgt
 
 // Test doubles only: worker lifecycle tests sleep instead of executing arithmetic.
 final class LoadProbe: @unchecked Sendable {
@@ -22,6 +23,45 @@ final class LoadProbe: @unchecked Sendable {
         var c = Config.safeDefault
         precondition(DischargePolicy.decide(config: c, percentage: 80, temperature: 55, wasActive: false, cooling: false) == .idle)
         c.auto_discharge_enabled = true
+        precondition(DisplayAwakePolicy.allows(config: c, percentage: 15, temperature: 50, cooling: false, thermal: .nominal))
+        for percentage in [nil, -1, 0, 10, 101] as [Int?] {
+            precondition(!DisplayAwakePolicy.allows(config: c, percentage: percentage, temperature: 50, cooling: false, thermal: .nominal))
+        }
+        for temperature in [nil, .nan, .infinity, 0, 75, 80] as [Double?] {
+            precondition(!DisplayAwakePolicy.allows(config: c, percentage: 80, temperature: temperature, cooling: false, thermal: .nominal))
+        }
+        precondition(!DisplayAwakePolicy.allows(config: .safeDefault, percentage: 80, temperature: 50, cooling: false, thermal: .nominal))
+        precondition(!DisplayAwakePolicy.allows(config: c, percentage: 80, temperature: 50, cooling: true, thermal: .nominal))
+        for thermal in [ProcessInfo.ThermalState.serious, .critical] {
+            precondition(!DisplayAwakePolicy.allows(config: c, percentage: 80, temperature: 50, cooling: false, thermal: thermal))
+        }
+        precondition(DisplayAwakePolicy.allows(config: c, percentage: 80, temperature: 50, cooling: false, thermal: .fair))
+        var instant = ContinuousClock.now
+        var created: UInt32 = 0
+        var released: [UInt32] = []
+        var fail = false
+        var awake: DisplayAwakeLease? = DisplayAwakeLease(now: { instant }, create: { properties in
+            precondition(properties[kIOPMAssertionTypeKey] as? String == kIOPMAssertionTypePreventUserIdleDisplaySleep)
+            precondition((properties[kIOPMAssertionTimeoutKey] as? NSNumber)?.intValue == 15)
+            precondition(properties[kIOPMAssertionTimeoutActionKey] as? String == kIOPMAssertionTimeoutActionRelease)
+            if fail { return nil }
+            created += 1; return created
+        }, release: { released.append($0) })
+        precondition(!awake!.isActive)
+        precondition(awake!.renew() && awake!.isActive)
+        precondition(awake!.renew() && released == [1])
+        instant = instant.advanced(by: .seconds(16))
+        precondition(!awake!.isActive)
+        precondition(awake!.renew() && released == [1, 2])
+        fail = true
+        precondition(!awake!.renew() && !awake!.isActive && released == [1, 2, 3])
+        awake!.stop(); awake!.stop()
+        precondition(released == [1, 2, 3])
+        fail = false
+        precondition(awake!.renew())
+        awake = nil
+        precondition(released == [1, 2, 3, 4])
+        print("PASS display-awake safety policy, idle-display type, OS timeout, replacement, expiry, failure and cleanup (mock assertions)")
         precondition(DischargePolicy.decide(config: c, percentage: 80, temperature: 55, wasActive: false, cooling: false) == .discharge)
         precondition(DischargePolicy.decide(config: c, percentage: 15, temperature: 55, wasActive: false, cooling: false) == .idle)
         precondition(DischargePolicy.decide(config: c, percentage: 15, temperature: 55, wasActive: true, cooling: false) == .discharge)

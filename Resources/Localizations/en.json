@@ -95,5 +95,7 @@
   "activity.waiting": "Waiting",
   "activity.full": "Fully charged",
   "activity.external": "External power",
-  "activity.battery": "Battery power"
+  "activity.battery": "Battery power",
+  "耗电开关开启且安全条件满足时防止闲置熄屏；不模拟接通电源，不覆盖合盖睡眠。": "Prevents idle display sleep while auto discharge is enabled and safety checks pass. Does not simulate AC power or override lid-close sleep.",
+  "已防止闲置熄屏 · 不覆盖合盖睡眠": "Idle display sleep prevented · lid-close sleep unchanged"
 }

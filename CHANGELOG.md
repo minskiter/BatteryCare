@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.1 — 2026-11-21
+
+- Add temporary idle-display/system-sleep prevention while auto discharge is enabled, including safe threshold waiting.
+- Separate the display assertion from CPU work; release on low battery, cooling, sensor/helper failure, disable and exit. OS-managed 15-second leases bound stalled monitoring.
+- Show actual assertion status and localized scope guidance. Do not fake AC power, modify global power profiles or override lid-close/manual/emergency sleep.
+- Add mock assertion lifecycle and safety-policy tests; no real stress or power assertions in tests.
+
 ## 2.2.0 — 2026-11-21
 
 - Replace constant single-thread stress with adaptive CPU-only work: at most 4 workers and half the logical cores (minimum 1), gradual ramp-up, bounded target duty and temperature taper.
