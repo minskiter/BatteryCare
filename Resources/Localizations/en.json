@@ -85,8 +85,8 @@
   "panel.actions": "Left-click for panel; right-click for quick actions",
   "quit.recovery": "Return to the app to retry. If you quit anyway, the helper will attempt recovery after the connection expires.",
   "menubar.position.title": "Menu bar position",
-  "menubar.position.right": "Move right",
-  "menubar.position.hint": "Starts near the right-hand system icons when possible. Hold ⌘ and drag to fine-tune; your position is remembered. macOS controls the final order.",
+  "menubar.position.right": "Try moving right",
+  "menubar.position.hint": "Requests right-side placement and verifies the result. macOS controls the final order; if unchanged, hold ⌘ and drag the menu bar icon. Your manual position is remembered.",
   "discharge.adaptive.hint": "Adaptive CPU-only load: at most 4 workers and half the logical cores (minimum 1), up to 85% duty per worker. Effective CPU cutoff is the lower of your setting and 75°C. Thermal pressure reduces or stops load. No added GPU or disk workload; zero wear is not guaranteed.",
   "activity.unknown": "Status unknown",
   "activity.charging": "Charging",
@@ -130,5 +130,10 @@
   "history.clear.hint": "This cannot be undone. Export a CSV first if needed. Battery control and settings are unchanged; recording resumes automatically.",
   "history.storage.hint": "Local only · 1 sample/minute · up to 365 days · no upload. Records only while the app runs; cumulative discharge is an observed estimate, not actual lifetime cycles.",
   "history.storage.error": "Battery history storage error",
-  "电量历史存储失败：": "Battery history storage error: "
+  "电量历史存储失败：": "Battery history storage error: ",
+  "menubar.position.pending": "Requesting a new menu bar position…",
+  "menubar.position.moved": "The icon moved right. Hold ⌘ and drag it to fine-tune the order.",
+  "menubar.position.alreadyRight": "The icon is in the right-side region. Hold ⌘ and drag to adjust its exact order.",
+  "menubar.position.unchanged": "macOS did not move the icon. Hold ⌘ and drag the BatteryCare icon right in the menu bar; its position will be remembered.",
+  "menubar.position.unavailable": "Could not verify the position; the display layout may have changed. Hold ⌘ and drag the menu bar icon manually."
 }

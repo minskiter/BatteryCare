@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1 — 2026-11-21
+
+- Make right-placement requests explicitly best effort: release the old item, defer past the current AppKit event cycle, then recreate with zero length before restoring content. This does not guarantee movement.
+- Measure normalized before/after positions and report moved, already-right, unchanged or unverifiable results; provide Command-drag fallback instead of silent no-op.
+- Keep power control and monitoring alive during placement, prevent duplicate requests, handle temporary item absence and add isolated movement-outcome tests and four-language feedback.
+
 ## 2.3.0 — 2026-11-21
 
 - Add local SQLite battery history, minute-level snapshot reuse, private file permissions, daily retention pruning, confirmed clearing and CSV export.

@@ -117,6 +117,8 @@ enum BatteryActivity: CaseIterable, Equatable {
     private var timer: Timer?
     var onUpdate: (() -> Void)?
     var onMoveMenuBarRight: (() -> Void)?
+    @Published var menuPositionBusy = false
+    @Published var menuPositionMessage: String?
     var onShowStatistics: (() -> Void)?
     let base = URL(string: "http://127.0.0.1:8765")!
     var enabled: Bool { connected && status?.config.auto_discharge_enabled == true }
@@ -509,8 +511,12 @@ struct SettingsPanel: View {
                     Label(L10n.text("menubar.position.title"), systemImage: "menubar.rectangle")
                     Spacer()
                     Button(L10n.text("menubar.position.right")) { model.onMoveMenuBarRight?() }
+                        .disabled(model.menuPositionBusy)
                 }
                 Text(L10n.text("menubar.position.hint")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let message = model.menuPositionMessage {
+                    Text(L10n.text(message)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Card {
                 Toggle(L10n.text("登录时打开菜单栏 App"), isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
@@ -557,7 +563,7 @@ struct SettingsPanel: View {
                 Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.3.0").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.3.1").font(.caption).foregroundStyle(.tertiary)
             }
             Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -600,6 +606,28 @@ enum MenuBarPosition {
             defaults.set(1, forKey: preferredPositionKey)
         }
     }
+    struct Position {
+        let screenID: Int
+        let rightGap: CGFloat
+    }
+    enum Outcome: String {
+        case moved, alreadyRight, unchanged, unavailable
+        var key: String { "menubar.position." + rawValue }
+    }
+    static func position(anchor: NSRect, screen: NSRect, screenID: Int) -> Position? {
+        guard anchor.width > 0, anchor.height > 0,
+              anchor.minX.isFinite, anchor.minY.isFinite,
+              screen.width > 0, screen.height > 0,
+              screen.contains(NSPoint(x: anchor.midX, y: anchor.midY)) else { return nil }
+        return Position(screenID: screenID, rightGap: max(0, screen.maxX - anchor.maxX))
+    }
+    static func outcome(before: Position?, after: Position?) -> Outcome {
+        guard let before, let after, before.screenID == after.screenID else { return .unavailable }
+        if before.rightGap - after.rightGap > 4 { return .moved }
+        // A right-side region, not a claim to be next to a particular system icon.
+        if after.rightGap <= 240 { return .alreadyRight }
+        return .unchanged
+    }
 }
 
 final class StatusPanel: NSPanel {
@@ -619,6 +647,7 @@ final class StatusPanel: NSPanel {
     var settingsWindow: NSWindow?
     var statisticsWindow: NSWindow?
     var powerObservers: [NSObjectProtocol] = []
+    var menuPositionTask: Task<Void, Never>?
     var globalMonitor: Any?
     var localMonitor: Any?
     var screenObserver: NSObjectProtocol?
@@ -638,10 +667,7 @@ final class StatusPanel: NSPanel {
             })
         }
         model.onMoveMenuBarRight = { [weak self] in
-            guard let self else { return }
-            self.hidePanel()
-            self.configureStatusItem(resetPosition: true)
-            self.updateStatus()
+            self?.moveMenuBarRight()
         }
         configurePanel()
         model.onUpdate = { [weak self] in
@@ -653,21 +679,63 @@ final class StatusPanel: NSPanel {
         }
         updateStatus()
         if CommandLine.arguments.contains("--migrate-legacy") { model.prepareControl() }
+        if CommandLine.arguments.contains("--move-menu-bar-right") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.moveMenuBarRight() }
+        }
         if CommandLine.arguments.contains("--show") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.showPopover() }
+            let delay = CommandLine.arguments.contains("--move-menu-bar-right") ? 1.5 : 0.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.showPopover() }
         }
         if CommandLine.arguments.contains("--show-statistics") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.showStatistics() }
         }
     }
     func configureStatusItem(resetPosition: Bool = false) {
-        // Remove first: AppKit may save the old position during removal.
-        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        // Runtime replacement goes through moveMenuBarRight: the old item must
+        // be released AND AppKit must finish its removal on a later run loop.
         MenuBarPosition.prepare(reset: resetPosition)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: 0)
         statusItem.autosaveName = MenuBarPosition.autosaveName
         statusItem.button?.target = self; statusItem.button?.action = #selector(clicked(_:))
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        updateStatus()
+        statusItem.length = NSStatusItem.variableLength
+    }
+    func currentMenuPosition() -> MenuBarPosition.Position? {
+        guard let anchor = statusAnchor(), let screen = statusItem?.button?.window?.screen,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return MenuBarPosition.position(anchor: anchor, screen: screen.frame, screenID: number.intValue)
+    }
+    func moveMenuBarRight() {
+        guard !model.menuPositionBusy else { return }
+        let before = currentMenuPosition()
+        model.menuPositionBusy = true
+        model.menuPositionMessage = "menubar.position.pending"
+        hidePanel()
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        statusItem = nil
+        menuPositionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.model.menuPositionBusy = false }
+            // Let AppKit complete the event/autorelease cycle before reseeding.
+            // This remains best effort; only measured movement counts as success.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self.configureStatusItem(resetPosition: true)
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            let after = self.currentMenuPosition()
+            let outcome = MenuBarPosition.outcome(before: before, after: after)
+            self.model.menuPositionMessage = outcome.key
+            if CommandLine.arguments.contains("--debug-placement") {
+                let data: [String: Any] = ["outcome": outcome.rawValue,
+                    "beforeRightGap": before.map { Double($0.rightGap) } ?? -1,
+                    "afterRightGap": after.map { Double($0.rightGap) } ?? -1]
+                if let json = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]) {
+                    try? json.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("BatteryCare-menu-position.json"), options: .atomic)
+                }
+            }
+        }
     }
     func configurePanel() {
         panelHost = NSHostingView(rootView: BatteryPanel(model: model) { [weak self] in self?.showSettings() })
@@ -705,13 +773,13 @@ final class StatusPanel: NSPanel {
         }
     }
     func statusAnchor() -> NSRect? {
-        guard let button = statusItem.button, let window = button.window else { return nil }
+        guard let button = statusItem?.button, let window = button.window else { return nil }
         return window.convertToScreen(button.convert(button.bounds, to: nil))
     }
     func positionPanel() {
         guard let anchor = statusAnchor(), let screen = NSScreen.screens.first(where: {
             $0.frame.contains(NSPoint(x: anchor.midX, y: anchor.midY))
-        }) ?? statusItem.button?.window?.screen ?? NSScreen.main else { return }
+        }) ?? statusItem?.button?.window?.screen ?? NSScreen.main else { return }
         panelHost.layoutSubtreeIfNeeded()
         let natural = NSSize(width: 360, height: max(1, ceil(panelHost.fittingSize.height)))
         panelHost.setFrameSize(natural)
@@ -740,8 +808,9 @@ final class StatusPanel: NSPanel {
         if NSApp.currentEvent?.type == .rightMouseUp { showMenu(); return }
         if panel.isVisible { hidePanel() } else { showPopover() }
     }
-    func hidePanel() { model.panelVisible = false; panel.orderOut(nil); statusItem.button?.highlight(false) }
+    func hidePanel() { model.panelVisible = false; panel?.orderOut(nil); statusItem?.button?.highlight(false) }
     func showPopover() {
+        guard statusItem != nil else { return }
         // Use an explicitly positioned panel rather than NSPopover's automatic
         // preferred-edge placement, which can move tall content above the screen.
         positionPanel()
@@ -751,6 +820,7 @@ final class StatusPanel: NSPanel {
         Task { await model.refresh() }
     }
     func showMenu() {
+        guard let statusItem else { return }
         hidePanel()
         let menu = NSMenu()
         let toggle = NSMenuItem(title: L10n.text("自动耗电"), action: #selector(quickToggle), keyEquivalent: "")
@@ -812,6 +882,7 @@ final class StatusPanel: NSPanel {
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
+        menuPositionTask?.cancel()
         for observer in powerObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }

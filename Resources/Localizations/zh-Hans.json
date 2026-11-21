@@ -85,8 +85,8 @@
   "panel.actions": "左键打开面板，右键快速操作",
   "quit.recovery": "可返回 App 重试；若仍退出，内置助手会在连接失效后尝试恢复适配器。",
   "menubar.position.title": "菜单栏位置",
-  "menubar.position.right": "靠右放置",
-  "menubar.position.hint": "首次尽量靠近右侧系统图标。按住 ⌘ 拖动可微调，调整后会记住位置；最终排列由 macOS 决定。",
+  "menubar.position.right": "尝试靠右放置",
+  "menubar.position.hint": "尝试靠右排列并检查实际结果；最终顺序由 macOS 决定。若未移动，请按住 ⌘ 拖动菜单栏图标，手动位置会被记住。",
   "discharge.adaptive.hint": "自适应纯 CPU 负载：最多 4 个线程且不超过一半逻辑核心（至少 1 个），每线程占空比最高 85%。CPU 实际停止温度取设置值与 75°C 中较低者；系统热压力升高时降载或停止。不增加 GPU 或磁盘负载，但不保证零损耗。",
   "activity.unknown": "状态未知",
   "activity.charging": "正在充电",
@@ -130,5 +130,10 @@
   "history.clear.hint": "此操作不可撤销，需要保留请先导出 CSV。不改变耗电开关或设置，随后会自动重新记录。",
   "history.storage.hint": "仅保存在本机 · 每分钟一条 · 最长保留 365 天 · 不上传。仅在 App 运行时记录，累计耗电仅代表已观测时段的估计，不是电池终身实际循环数。",
   "history.storage.error": "电量历史存储失败",
-  "电量历史存储失败：": "电量历史存储失败："
+  "电量历史存储失败：": "电量历史存储失败：",
+  "menubar.position.pending": "正在请求重新排列菜单栏图标…",
+  "menubar.position.moved": "图标已向右移动。若要调整相邻顺序，请按住 ⌘ 拖动。",
+  "menubar.position.alreadyRight": "图标已在右侧区域。若要继续调整具体顺序，请按住 ⌘ 拖动。",
+  "menubar.position.unchanged": "macOS 未移动图标。请按住 ⌘，将菜单栏中的 BatteryCare 图标拖到右侧；调整后会记住位置。",
+  "menubar.position.unavailable": "无法确认移动结果，显示器布局可能已改变。请按住 ⌘ 手动拖动菜单栏图标。"
 }

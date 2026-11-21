@@ -15,6 +15,22 @@ import AppKit
         precondition(defaults.integer(forKey: MenuBarPosition.preferredPositionKey) == 1)
         precondition(MenuBarPosition.autosaveName == "BatteryCare.MainBattery")
         print("PASS right-side initial hint, remembered manual placement, explicit reset")
+        let right = MenuBarPosition.Position(screenID: 1, rightGap: 180)
+        let left = MenuBarPosition.Position(screenID: 1, rightGap: 800)
+        precondition(MenuBarPosition.outcome(before: left, after: right) == .moved)
+        precondition(MenuBarPosition.outcome(before: right, after: right) == .alreadyRight)
+        precondition(MenuBarPosition.outcome(before: left, after: left) == .unchanged)
+        precondition(MenuBarPosition.outcome(before: left, after: .init(screenID: 2, rightGap: 0)) == .unavailable)
+        precondition(MenuBarPosition.outcome(before: nil, after: right) == .unavailable)
+        precondition(MenuBarPosition.outcome(before: left, after: nil) == .unavailable)
+        precondition(MenuBarPosition.outcome(before: left, after: .init(screenID: 1, rightGap: 798)) == .unchanged)
+        let screen = NSRect(x: -1920, y: 0, width: 1920, height: 1080)
+        let anchor = NSRect(x: -240, y: 1047, width: 60, height: 33)
+        let position = MenuBarPosition.position(anchor: anchor, screen: screen, screenID: 7)
+        precondition(position?.rightGap == 180 && position?.screenID == 7)
+        precondition(MenuBarPosition.position(anchor: .zero, screen: screen, screenID: 7) == nil)
+        precondition(MenuBarPosition.position(anchor: NSRect(x: 100, y: 1047, width: 60, height: 33), screen: screen, screenID: 7) == nil)
+        print("PASS actual movement outcomes, no-op/manual fallback, screen changes and normalized negative-origin positions")
         let cases: [(String, NSRect, NSRect, NSSize)] = [
             ("main display", NSRect(x: 1200, y: 958, width: 64, height: 24), NSRect(x: 0, y: 38, width: 1512, height: 920), NSSize(width: 360, height: 500)),
             ("right edge", NSRect(x: 1490, y: 958, width: 22, height: 24), NSRect(x: 0, y: 38, width: 1512, height: 920), NSSize(width: 360, height: 500)),
