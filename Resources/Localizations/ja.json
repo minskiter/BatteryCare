@@ -86,5 +86,14 @@
   "quit.recovery": "アプリに戻って再試行できます。終了する場合は、接続の失効後にヘルパーが電源アダプタの復旧を試みます。",
   "menubar.position.title": "メニューバーの位置",
   "menubar.position.right": "右側に配置",
-  "menubar.position.hint": "初回は可能な範囲で右側のシステムアイコン付近に配置します。⌘ を押しながらドラッグして調整でき、位置は保存されます。最終的な順序は macOS が決定します。"
+  "menubar.position.hint": "初回は可能な範囲で右側のシステムアイコン付近に配置します。⌘ を押しながらドラッグして調整でき、位置は保存されます。最終的な順序は macOS が決定します。",
+  "discharge.adaptive.hint": "CPU のみの適応型負荷：最大 4 ワーカー、論理コアの半分まで（最低 1）。各ワーカーの稼働率は最大 85%。CPU の停止温度は設定値と 75°C の低い方です。システムの熱状態に応じて負荷を減らすか停止します。GPU・ディスクへの負荷は追加しませんが、摩耗ゼロは保証しません。",
+  "activity.unknown": "状態不明",
+  "activity.charging": "充電中",
+  "activity.discharging": "放電中",
+  "activity.cooling": "冷却中",
+  "activity.waiting": "しきい値待ち",
+  "activity.full": "充電完了",
+  "activity.external": "外部電源",
+  "activity.battery": "バッテリー駆動"
 }

@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+enum AppIdentity {
+    static let bundleIdentifier = "com.local.batterycare"
+    static let legacyBundleIdentifier = "com.local.batterybar"
+    static let conflictingBundleIdentifiers = [bundleIdentifier, legacyBundleIdentifier, "com.local.batterycare.uitest"]
+    static func migratePreferences(to current: UserDefaults = .standard,
+                                   from legacy: UserDefaults? = UserDefaults(suiteName: legacyBundleIdentifier)) {
+        // Only migrate our own settings; never overwrite a new-domain choice.
+        for key in ["BatteryCare.language", "NSStatusItem Preferred Position BatteryCare.MainBattery"] {
+            if current.object(forKey: key) == nil, let value = legacy?.object(forKey: key) { current.set(value, forKey: key) }
+        }
+    }
+}
+
 enum AppLanguage: String, CaseIterable, Identifiable {
     case english = "en", simplifiedChinese = "zh-Hans", traditionalChinese = "zh-Hant", japanese = "ja"
     var id: String { rawValue }
@@ -45,7 +58,7 @@ enum L10n {
         if persist { UserDefaults.standard.set(language.rawValue, forKey: preferenceKey) }
     }
     static let catalogDirectory: URL = {
-        #if BATTERYBAR_TESTING
+        #if BATTERYCARE_TESTING
         return URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/Localizations")
         #else
         return Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Localizations")

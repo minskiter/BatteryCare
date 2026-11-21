@@ -30,9 +30,9 @@ PY
 import plistlib, sys
 from pathlib import Path
 app = Path(sys.argv[1])
-info = dict(CFBundleName="BatteryCare", CFBundleDisplayName="BatteryCare", CFBundleIdentifier="com.local.batterybar",
-            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.1.1",
-            CFBundleVersion="7", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
+info = dict(CFBundleName="BatteryCare", CFBundleDisplayName="BatteryCare", CFBundleIdentifier="com.local.batterycare",
+            CFBundleExecutable="BatteryCare", CFBundlePackageType="APPL", CFBundleShortVersionString="2.2.0",
+            CFBundleVersion="8", LSMinimumSystemVersion="13.0", LSUIElement=True, NSHighResolutionCapable=True,
             CFBundleIconFile="AppIcon", CFBundleDevelopmentRegion="en", CFBundleLocalizations=["en", "zh-Hans", "zh-Hant", "ja"])
 with open(app/"Contents/Info.plist", "wb") as f: plistlib.dump(info, f)
 PY

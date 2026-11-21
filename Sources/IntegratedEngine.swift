@@ -8,7 +8,7 @@ extension Config {
         (1...99).contains(low_battery_threshold) && high_battery_threshold > low_battery_threshold && high_battery_threshold <= 100 &&
         (40...100).contains(temp_limit) && (1...3600).contains(cool_down_sleep) && (5...3600).contains(loop_interval)
     }
-    static var safeDefault: Config { Config(auto_discharge_enabled: false, low_battery_threshold: 10, high_battery_threshold: 20, temp_limit: 80, cool_down_sleep: 30, loop_interval: 60) }
+    static var safeDefault: Config { Config(auto_discharge_enabled: false, low_battery_threshold: 10, high_battery_threshold: 20, temp_limit: 75, cool_down_sleep: 30, loop_interval: 60) }
 }
 struct EngineFailure: LocalizedError {
     let detail: String
@@ -93,42 +93,126 @@ final class HardwareLease: @unchecked Sendable {
     }
 }
 
-// A single bounded CPU worker. Its lease expires if sensor refreshes stall.
+// Policy caps are conservative application budgets, not hardware safety ratings.
+struct LoadPlan: Equatable {
+    let workers: Int
+    let duty: Double
+    static let stopped = LoadPlan(workers: 0, duty: 0)
+}
+enum AdaptiveLoadPolicy {
+    static func workerLimit(processors: Int) -> Int { max(1, min(4, processors / 2)) }
+    static func temperatureLimit(_ configured: Double) -> Double { min(configured, 75) }
+    static func plan(temperature: Double, limit: Double, thermal: ProcessInfo.ThermalState,
+                     processors: Int, previous: LoadPlan) -> LoadPlan {
+        let ceiling = temperatureLimit(limit)
+        guard temperature.isFinite, temperature > 0, temperature < ceiling else { return .stopped }
+        let workers: Int
+        let maximumDuty: Double
+        switch thermal {
+        case .nominal:
+            workers = workerLimit(processors: processors)
+            // Taper over the final 15 degrees instead of hitting the stop limit at full load.
+            maximumDuty = 0.15 + 0.70 * min(1, max(0, (ceiling - temperature) / 15))
+        case .fair:
+            workers = 1; maximumDuty = 0.25
+        case .serious, .critical: return .stopped
+        @unknown default: return .stopped
+        }
+        // Increase by at most 0.25 core per sample, but reduce immediately.
+        let previousBudget = Double(previous.workers) * previous.duty
+        let budget = min(Double(workers) * maximumDuty, previousBudget + 0.25)
+        let count = min(workers, max(1, Int(ceil(budget / maximumDuty))))
+        return LoadPlan(workers: count, duty: budget / Double(count))
+    }
+}
+
+// Small, register-only batches: no GPU work, buffers, disk writes or networking.
+// Monotonic leases and short slices bound cancellation even if UI sampling stalls.
 final class BoundedLoad: @unchecked Sendable {
     private let lock = NSLock()
     private var generation = 0
     private var active = false
-    private var expires = Date.distantPast
-    private var result = 0.0
-    var isActive: Bool { lock.lock(); defer { lock.unlock() }; return active && Date() < expires }
-    func renew() {
-        lock.lock(); expires = Date().addingTimeInterval(12)
-        if active { lock.unlock(); return }
-        active = true; generation += 1; let ticket = generation; lock.unlock()
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            while let self {
-                self.lock.lock()
-                let allowed = self.active && self.generation == ticket && Date() < self.expires
-                if !allowed && self.generation == ticket { self.active = false }
-                self.lock.unlock()
-                if !allowed { return }
-                var value = 0.0
-                for i in 1...40_000 { value += sqrt(Double(i)) }
-                self.lock.lock(); self.result = value; self.lock.unlock()
+    private var launched = 0
+    private var expires = ContinuousClock.now
+    private var plan = LoadPlan.stopped
+    private let capacity: Int
+    private let leaseDuration: TimeInterval
+    private let thermalState: () -> ProcessInfo.ThermalState
+    private let batch: (Double) -> Double
+    init(workerCapacity: Int = AdaptiveLoadPolicy.workerLimit(processors: ProcessInfo.processInfo.activeProcessorCount),
+         leaseDuration: TimeInterval = 12,
+         thermalState: @escaping () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState },
+         batch: @escaping (Double) -> Double = BoundedLoad.compute) {
+        capacity = max(1, min(4, workerCapacity)); self.leaseDuration = leaseDuration
+        self.thermalState = thermalState; self.batch = batch
+    }
+    var isActive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return active && ContinuousClock.now < expires
+    }
+    @inline(never) private static func compute(_ seed: Double) -> Double {
+        var value = seed
+        // The data dependency prevents optimization into a constant or one cached sum.
+        for i in 1...2_048 { value = sqrt(value + Double(i)) }
+        return value
+    }
+    func renew(plan next: LoadPlan) {
+        guard next.workers > 0, next.duty.isFinite, next.duty > 0 else { stop(); return }
+        lock.lock()
+        plan = LoadPlan(workers: min(capacity, next.workers), duty: min(0.85, next.duty))
+        expires = ContinuousClock.now.advanced(by: .seconds(leaseDuration))
+        if !active { active = true; generation += 1; launched = 0 }
+        let first = launched
+        launched = max(launched, plan.workers)
+        let last = launched
+        let ticket = generation
+        lock.unlock()
+        // Allocate additional workers only when the ramp actually needs them.
+        for index in first..<last {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                var value = Double(index + 1)
+                while let self {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let thermal = self.thermalState()
+                    self.lock.lock()
+                    let allowed = self.active && self.generation == ticket && ContinuousClock.now < self.expires
+                    let current = self.plan
+                    // Fail closed on new/unknown OS thermal states too.
+                    let thermalAllowed = thermal == .nominal || thermal == .fair
+                    if (!allowed || !thermalAllowed) && self.generation == ticket { self.active = false }
+                    self.lock.unlock()
+                    guard allowed && thermalAllowed else { return }
+                    let duty = thermal == .fair ? min(current.duty, 0.25) : current.duty
+                    if index < current.workers && (thermal != .fair || index == 0) {
+                        let deadline = start + 0.020 * duty
+                        while ProcessInfo.processInfo.systemUptime < deadline {
+                            value = self.batch(value)
+                            self.lock.lock()
+                            let keepGoing = self.active && self.generation == ticket && ContinuousClock.now < self.expires
+                            self.lock.unlock()
+                            if !keepGoing { return }
+                        }
+                    }
+                    let rest = 0.020 - (ProcessInfo.processInfo.systemUptime - start)
+                    if rest > 0 { Thread.sleep(forTimeInterval: rest) }
+                }
             }
         }
     }
-    func stop() { lock.lock(); active = false; generation += 1; expires = .distantPast; lock.unlock() }
+    func stop() {
+        lock.lock(); active = false; generation += 1; launched = 0; expires = .now; plan = .stopped; lock.unlock()
+    }
 }
 
 enum DischargeDecision: Equatable { case idle, discharge, cooldown, unavailable }
 enum DischargePolicy {
-    static func decide(config: Config, percentage: Int?, temperature: Double?, wasActive: Bool, cooling: Bool) -> DischargeDecision {
+    static func decide(config: Config, percentage: Int?, temperature: Double?, wasActive: Bool, cooling: Bool, thermal: ProcessInfo.ThermalState = .nominal) -> DischargeDecision {
         guard config.auto_discharge_enabled else { return .idle }
-        guard let p = percentage, let temp = temperature else { return .unavailable }
+        guard let p = percentage, (0...100).contains(p), let temp = temperature, temp.isFinite, temp > 0 else { return .unavailable }
         if p <= config.low_battery_threshold { return .idle }
         guard wasActive || p >= config.high_battery_threshold else { return .idle }
-        if temp >= config.temp_limit || cooling { return .cooldown }
+        if temp >= AdaptiveLoadPolicy.temperatureLimit(config.temp_limit) || cooling { return .cooldown }
+        if thermal != .nominal && thermal != .fair { return .cooldown }
         return .discharge
     }
 }
@@ -138,6 +222,7 @@ actor IntegratedEngine {
     private let configURL: URL
     private let hardware: HardwareLease
     private let load = BoundedLoad()
+    private var loadPlan = LoadPlan.stopped
     private var cycleActive = false
     private var adapterEnabled: Bool? = nil
     private var coolingUntil = Date.distantPast
@@ -150,17 +235,30 @@ actor IntegratedEngine {
     private var running = true
     private let sensorsEnabled: Bool
     static let legacyPlist = "/Library/LaunchDaemons/com.local.battery-service.plist"
-    init(configURL: URL? = nil, sensorsEnabled: Bool = true) {
-        self.configURL = configURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("BatteryBar/config.json")
+    init(configURL: URL? = nil, legacyConfigURLs: [URL]? = nil, sensorsEnabled: Bool = true) {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        self.configURL = configURL ?? support.appendingPathComponent("BatteryCare/config.json")
         self.sensorsEnabled = sensorsEnabled
         hardware = HardwareLease()
-        let oldURL = URL(fileURLWithPath: "/Library/Application Support/BatteryService/config.json")
-        if let data = try? Data(contentsOf: self.configURL), let saved = try? JSONDecoder().decode(Config.self, from: data) { config = saved }
-        else if let data = try? Data(contentsOf: oldURL), let old = try? JSONDecoder().decode(Config.self, from: data) { config = old }
-        else { config = .safeDefault }
-        if !config.isValid { config = .safeDefault }
+        let legacy = legacyConfigURLs ?? (configURL == nil ? [
+            support.appendingPathComponent("BatteryBar/config.json"),
+            URL(fileURLWithPath: "/Library/Application Support/BatteryService/config.json")
+        ] : [])
+        var imported = false
+        config = .safeDefault
+        for (index, url) in ([self.configURL] + legacy).enumerated() {
+            guard let data = try? Data(contentsOf: url),
+                  let saved = try? JSONDecoder().decode(Config.self, from: data), saved.isValid else { continue }
+            config = saved; imported = index > 0; break
+        }
         // Never resume CPU stress merely by opening the App or after a crash.
         config.auto_discharge_enabled = false
+        if imported {
+            do {
+                try FileManager.default.createDirectory(at: self.configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(config).write(to: self.configURL, options: [.atomic])
+            } catch { serviceError = error.localizedDescription }
+        }
     }
     func info() -> String {
         if FileManager.default.fileExists(atPath: Self.legacyPlist) { return "内置监测已启动 · 检测到旧服务，需迁移后启用控制" }
@@ -221,13 +319,13 @@ actor IntegratedEngine {
         } else { battery = Snapshot.Battery(percentage: nil, charging_state: nil, power_source: nil, is_charging: nil, is_plugged_in: nil, cycle_count: nil, health_percentage: nil) }
         if running { control(percentage: battery.percentage, temperature: temp) }
         let result = Snapshot(service: .init(running: running, last_update: ISO8601DateFormatter().string(from: Date()), last_error: serviceError), battery: battery,
-            temperature: .init(cpu_celsius: temp, limit_celsius: config.temp_limit),
+            temperature: .init(cpu_celsius: temp, limit_celsius: AdaptiveLoadPolicy.temperatureLimit(config.temp_limit)),
             auto_discharge: .init(enabled: config.auto_discharge_enabled, cycle_active: cycleActive, cpu_load_active: load.isActive, caffeinate_active: assertion != 0 && load.isActive), config: config)
         lastSnapshot = result
         return result
     }
     private func control(percentage: Int?, temperature: Double?) {
-        let decision = DischargePolicy.decide(config: config, percentage: percentage, temperature: temperature, wasActive: cycleActive, cooling: Date() < coolingUntil)
+        let decision = DischargePolicy.decide(config: config, percentage: percentage, temperature: temperature, wasActive: cycleActive, cooling: Date() < coolingUntil, thermal: ProcessInfo.processInfo.thermalState)
         guard config.auto_discharge_enabled else { stopLoad(); cycleActive = false; return }
         guard hardware.isReady else {
             stopLoad(); cycleActive = false; config.auto_discharge_enabled = false
@@ -238,7 +336,7 @@ actor IntegratedEngine {
         // still receives a fresh 12-second lease only after every sensor sample.
         let safetyStop = decision == .idle && (percentage ?? 0) <= config.low_battery_threshold || decision == .unavailable || decision == .cooldown
         if Date() < nextCycleCheck && !safetyStop {
-            if load.isActive { startLoad() }
+            if decision == .discharge, cycleActive, adapterEnabled == false, let temperature { startLoad(temperature: temperature) }
             return
         }
         nextCycleCheck = decision == .cooldown ? .distantPast : Date().addingTimeInterval(Double(config.loop_interval))
@@ -250,11 +348,15 @@ actor IntegratedEngine {
                 if decision == .unavailable { serviceError = "电量或 CPU 温度不可用，已暂停耗电并恢复适配器。" }
             case .cooldown:
                 stopLoad(); cycleActive = true
-                if let temperature, temperature >= config.temp_limit { coolingUntil = Date().addingTimeInterval(Double(config.cool_down_sleep)) }
+                if let temperature, temperature >= AdaptiveLoadPolicy.temperatureLimit(config.temp_limit) ||
+                    (ProcessInfo.processInfo.thermalState != .nominal && ProcessInfo.processInfo.thermalState != .fair) {
+                    coolingUntil = Date().addingTimeInterval(Double(config.cool_down_sleep))
+                }
             case .discharge:
                 // Do not start CPU load until the hardware has acknowledged AC cutoff.
                 if adapterEnabled != false { _ = try hardware.call("disable"); adapterEnabled = false }
-                cycleActive = true; serviceError = nil; startLoad()
+                cycleActive = true; serviceError = nil
+                if let temperature { startLoad(temperature: temperature) }
             }
         } catch {
             stopLoad(); cycleActive = false; config.auto_discharge_enabled = false
@@ -262,8 +364,12 @@ actor IntegratedEngine {
             serviceError = error.localizedDescription; try? persist()
         }
     }
-    private func startLoad() {
-        load.renew()
+    private func startLoad(temperature: Double) {
+        loadPlan = AdaptiveLoadPolicy.plan(temperature: temperature, limit: config.temp_limit,
+            thermal: ProcessInfo.processInfo.thermalState, processors: ProcessInfo.processInfo.activeProcessorCount,
+            previous: load.isActive ? loadPlan : .stopped)
+        guard loadPlan != .stopped else { stopLoad(); return }
+        load.renew(plan: loadPlan)
         if assertion == 0 {
             let result = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "BatteryCare auto discharge" as CFString, &assertion)
             if result != kIOReturnSuccess { assertion = 0 }
@@ -277,7 +383,7 @@ actor IntegratedEngine {
         }
     }
     private func stopLoad() {
-        load.stop()
+        load.stop(); loadPlan = .stopped
         if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
     }
     func shutdown() throws {

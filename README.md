@@ -41,11 +41,15 @@ Originally a `battery.py` utility, the current app runs its monitoring and contr
 - The lightning indicator appears **only when the system reports actual charging**, never merely because auto discharge is enabled.
 - Battery temperature and health readings, with unavailable sensors shown honestly rather than fabricated values.
 - A panel anchored below its menu bar button, constrained to the current display, with scrolling on short screens.
+- A live activity gauge: flowing downward chevrons only during active auto discharge, a charging bolt, a cooling pause and a waiting clock. The fill represents real charge. Animation runs at up to 15 fps only while the panel is visible; Reduce Motion uses static symbols.
+
+![BatteryCare activity states](./assets/status-preview.png)
 
 ### 🎛️ Thresholds and thermal protection
 
 - Configurable start/stop thresholds, temperature limit, cooldown and control interval.
-- At the upper threshold, the app confirms adapter cutoff before starting one CPU load worker. At the lower threshold, it stops the load and restores the adapter.
+- At the upper threshold, the app confirms adapter cutoff before starting an adaptive CPU-only load. At the lower threshold, it stops the load and restores the adapter.
+- Up to 4 workers, capped at half the logical cores (minimum 1), with gradual ramp-up and up to 85% target duty per worker. The effective CPU cutoff is the lower of the configured limit and 75°C; OS thermal pressure reduces or stops work. No extra GPU, disk or large-memory workload. These are conservative software budgets, not a zero-wear guarantee.
 - Battery and temperature samples every 5 seconds; health cached for 5 minutes. Safety stops do not wait for the normal threshold interval.
 - Overheating, low battery or missing sensors stop or pause the load. CPU work and sleep-prevention assertions have timeouts.
 
@@ -109,7 +113,7 @@ Builds are locally ad-hoc signed, without Developer ID signing or notarization. 
 5. To hide the native battery icon, use the Settings shortcut and change it yourself in System Settings. Its location varies by macOS version.
 6. Closing Settings keeps the app running. Choose Quit to stop monitoring and perform cleanup.
 
-**Upgrading from BatteryBar:** quit the old app normally before opening BatteryCare. The bundle ID `com.local.batterybar` and configuration path `~/Library/Application Support/BatteryBar/config.json` are retained for compatibility; the display name and executable are BatteryCare. Do not move the app while it runs. Recheck its login item after moving it.
+**Upgrading from BatteryBar / BatteryCare 2.1:** disable the old app's login item and quit it normally before replacing it. Version 2.2 uses bundle ID `com.local.batterycare` and `~/Library/Application Support/BatteryCare/config.json`. It imports valid old BatteryBar settings and missing language/menu-position preferences without overwriting new choices or resuming auto discharge. Install at the final location, then enable the new login item. The new bundle does not automatically unregister the old identity. Do not move a running app.
 
 <a id="architecture"></a>
 ## 🏗️ Technology and architecture

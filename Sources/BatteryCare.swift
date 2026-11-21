@@ -36,6 +36,58 @@ enum BatteryIcon {
     }
 }
 
+enum BatteryActivity: CaseIterable, Equatable {
+    case unknown, charging, discharging, cooling, waiting, full, external, battery
+    static func resolve(_ snapshot: Snapshot?, connected: Bool) -> Self {
+        guard connected, let s = snapshot, s.service.running else { return .unknown }
+        if s.battery.is_charging == true { return .charging }
+        if s.config.auto_discharge_enabled && s.auto_discharge.enabled {
+            guard let percentage = s.battery.percentage, (0...100).contains(percentage),
+                  let temperature = s.temperature.cpu_celsius, temperature.isFinite, temperature > 0 else { return .unknown }
+            if s.auto_discharge.cycle_active && s.auto_discharge.cpu_load_active { return .discharging }
+            if s.auto_discharge.cycle_active { return .cooling }
+            return .waiting
+        }
+        if s.battery.charging_state == "charged" { return .full }
+        if s.battery.is_plugged_in == true { return .external }
+        if s.battery.is_plugged_in == false || s.battery.power_source == "Battery Power" { return .battery }
+        return .unknown
+    }
+    var labelKey: String {
+        switch self {
+        case .unknown: return "activity.unknown"
+        case .charging: return "activity.charging"
+        case .discharging: return "activity.discharging"
+        case .cooling: return "activity.cooling"
+        case .waiting: return "activity.waiting"
+        case .full: return "activity.full"
+        case .external: return "activity.external"
+        case .battery: return "activity.battery"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .unknown: return "questionmark"
+        case .charging: return "bolt.fill"
+        case .discharging, .battery: return "arrow.down"
+        case .cooling: return "pause.fill"
+        case .waiting: return "clock"
+        case .full: return "checkmark"
+        case .external: return "powerplug.fill"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .unknown: return .secondary
+        case .charging, .full, .external: return .green
+        case .discharging, .waiting: return .orange
+        case .cooling, .battery: return .blue
+        }
+    }
+    var hasAnimation: Bool { self == .charging || self == .discharging }
+    func shouldAnimate(visible: Bool, reduceMotion: Bool) -> Bool { visible && !reduceMotion && hasAnimation }
+}
+
 @MainActor final class BatteryModel: ObservableObject {
     @Published var language = L10n.language
     func setLanguage(_ value: AppLanguage, persist: Bool = true) {
@@ -48,6 +100,7 @@ enum BatteryIcon {
     @Published var busy = false
     @Published var message: String?
     @Published var lastSync: Date?
+    @Published var panelVisible = false
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     @Published var serviceInfo = "内置服务启动中…"
     private let engine: IntegratedEngine?
@@ -60,6 +113,7 @@ enum BatteryIcon {
     var enabled: Bool { connected && status?.config.auto_discharge_enabled == true }
     var batteryLabel: String { status?.battery.percentage.map { "\($0)%" } ?? "—" }
     var isCharging: Bool { connected && status?.battery.is_charging == true }
+    var activity: BatteryActivity { .resolve(status, connected: connected) }
     var batterySymbol: String {
         BatteryIcon.symbol(percentage: connected ? status?.battery.percentage : nil, isCharging: isCharging)
     }
@@ -229,6 +283,69 @@ struct Metric: View {
         }
     }
 }
+
+// Pure artwork can also be rendered with a fixed phase for visual regression QA.
+struct BatteryGaugeArtwork: View {
+    let activity: BatteryActivity
+    let percentage: Int?
+    let phase: Double
+    let animated: Bool
+    var fill: CGFloat { CGFloat(min(100, max(0, percentage ?? 0))) / 100 }
+    var body: some View {
+        ZStack {
+            Circle().stroke(.primary.opacity(0.07), lineWidth: 7).frame(width: 82, height: 82)
+            Circle().trim(from: 0, to: fill)
+                .stroke(activity.color, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                .rotationEffect(.degrees(-90)).frame(width: 82, height: 82)
+            // Only the thin outer accent moves; the fill always represents real charge.
+            if animated {
+                Circle().trim(from: 0, to: 0.14)
+                    .stroke(activity.color.opacity(0.65), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90 + (activity == .discharging ? -1 : 1) * phase * 360))
+                    .frame(width: 96, height: 96)
+            }
+            if activity == .discharging && animated {
+                ForEach(0..<3) { index in
+                    let step = (phase + Double(index) / 3).truncatingRemainder(dividingBy: 1)
+                    Image(systemName: "chevron.down").font(.system(size: 16, weight: .bold))
+                        .opacity(sin(step * .pi)).offset(y: -17 + step * 34)
+                }.foregroundStyle(activity.color)
+            } else {
+                Image(systemName: activity.symbol).font(.system(size: 27, weight: .semibold))
+                    .foregroundStyle(activity.color)
+                    .opacity(activity == .charging && animated ? 0.7 + 0.3 * sin(phase * .pi) : 1)
+            }
+        }.frame(width: 100, height: 100)
+    }
+}
+
+struct BatteryGauge: View {
+    let activity: BatteryActivity
+    let percentage: Int?
+    let visible: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var animated: Bool { activity.shouldAnimate(visible: visible, reduceMotion: reduceMotion) }
+    var body: some View {
+        VStack(spacing: 2) {
+            // No timeline is mounted at all while hidden, paused or reducing motion.
+            if animated {
+                TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
+                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                    BatteryGaugeArtwork(activity: activity, percentage: percentage, phase: phase, animated: true)
+                }
+            } else {
+                BatteryGaugeArtwork(activity: activity, percentage: percentage, phase: 0, animated: false)
+            }
+            Text(L10n.text(activity.labelKey)).font(.system(size: 10, weight: .medium))
+                .foregroundStyle(activity.color)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: percentage)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.text(activity.labelKey))
+        .accessibilityValue(percentage.map { "\($0)%" } ?? "—")
+    }
+}
+
 struct BatteryPanel: View {
     @ObservedObject var model: BatteryModel
     var settings: () -> Void
@@ -257,14 +374,8 @@ struct BatteryPanel: View {
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    ZStack {
-                        Circle().stroke(.primary.opacity(0.07), lineWidth: 7)
-                        Circle().trim(from: 0, to: CGFloat(model.status?.battery.percentage ?? 0) / 100)
-                            .stroke(model.enabled ? Color.orange : Color.green, style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                        Image(systemName: model.isCharging ? "bolt.fill" : "leaf.fill")
-                            .font(.system(size: 27)).foregroundStyle(model.enabled ? .orange : .green)
-                    }.frame(width: 82, height: 82).padding(.trailing, 5)
+                    BatteryGauge(activity: model.activity, percentage: model.status?.battery.percentage,
+                                 visible: model.panelVisible).padding(.trailing, 1)
                 }
             }
             Card {
@@ -300,6 +411,7 @@ struct BatteryPanel: View {
         }.padding(18).frame(width: 360).background(Glass()).preferredColorScheme(nil).environment(\.locale, Locale(identifier: model.language.rawValue))
     }
     var powerText: String {
+        guard model.connected else { return L10n.text("activity.unknown") }
         guard let b = model.status?.battery else { return L10n.text("等待电池数据") }
         if b.is_charging == true { return L10n.text("正在充电") }
         if b.is_plugged_in == true { return b.charging_state == "charged" ? L10n.text("电量已充满 · 外接电源") : L10n.text("已连接外接电源") }
@@ -354,10 +466,11 @@ struct SettingsPanel: View {
                     numberRow(L10n.text("开始耗电阈值"), key: \.high_battery_threshold, unit: "%")
                     HStack {
                         Text(L10n.text("CPU 温度上限")); Spacer()
-                        TextField(L10n.text("温度"), value: Binding(get: { draft?.temp_limit ?? 80 }, set: { draft?.temp_limit = $0; dirty = true }), format: .number)
+                        TextField(L10n.text("温度"), value: Binding(get: { draft?.temp_limit ?? 75 }, set: { draft?.temp_limit = $0; dirty = true }), format: .number)
                             .frame(width: 75).multilineTextAlignment(.trailing)
                         Text("°C").foregroundStyle(.secondary).frame(width: 25)
                     }
+                    Text(L10n.text("discharge.adaptive.hint")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     numberRow(L10n.text("过热冷却等待"), key: \.cool_down_sleep, unit: L10n.text("秒"))
                     numberRow(L10n.text("控制轮询间隔"), key: \.loop_interval, unit: L10n.text("秒"))
                     Divider()
@@ -379,7 +492,7 @@ struct SettingsPanel: View {
                 Button(L10n.text("迁移／授权电源控制…")) { model.prepareControl() }.disabled(model.busy)
 
                 Spacer()
-                Text("v2.1.1").font(.caption).foregroundStyle(.tertiary)
+                Text("v2.2.0").font(.caption).foregroundStyle(.tertiary)
             }
             Text(L10n.text(model.serviceInfo)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(L10n.text("服务现已集成在 App 内，无需 Python 或独立 LaunchDaemon。关闭设置窗口不会退出；退出 App 会停止负载并恢复适配器。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -425,9 +538,11 @@ enum MenuBarPosition {
 }
 
 final class StatusPanel: NSPanel {
+    var onHidden: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { orderOut(sender) }
+    override func orderOut(_ sender: Any?) { super.orderOut(sender); onHidden?() }
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -442,7 +557,9 @@ final class StatusPanel: NSPanel {
     var screenObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let duplicate = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "local.BatteryCare").first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+        let identities = Set(AppIdentity.conflictingBundleIdentifiers + [Bundle.main.bundleIdentifier ?? AppIdentity.bundleIdentifier])
+        if let duplicate = identities.flatMap({ NSRunningApplication.runningApplications(withBundleIdentifier: $0) })
+            .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
             duplicate.activate(options: .activateIgnoringOtherApps); NSApp.terminate(nil); return
         }
         NSApp.setActivationPolicy(.accessory)
@@ -485,6 +602,7 @@ final class StatusPanel: NSPanel {
         panelScroll.scrollerStyle = .overlay; panelScroll.documentView = panelHost
         panel = StatusPanel(contentRect: panelScroll.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = L10n.text("BatteryCare 电池控制")
+        panel.onHidden = { [weak model] in model?.panelVisible = false }
         panel.contentView = panelScroll
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false
@@ -545,12 +663,13 @@ final class StatusPanel: NSPanel {
         if NSApp.currentEvent?.type == .rightMouseUp { showMenu(); return }
         if panel.isVisible { hidePanel() } else { showPopover() }
     }
-    func hidePanel() { panel.orderOut(nil); statusItem.button?.highlight(false) }
+    func hidePanel() { model.panelVisible = false; panel.orderOut(nil); statusItem.button?.highlight(false) }
     func showPopover() {
         // Use an explicitly positioned panel rather than NSPopover's automatic
         // preferred-edge placement, which can move tall content above the screen.
         positionPanel()
         panel.makeKeyAndOrderFront(nil)
+        model.panelVisible = true
         statusItem.button?.highlight(true)
         Task { await model.refresh() }
     }
@@ -604,9 +723,23 @@ final class StatusPanel: NSPanel {
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPopover(); return true }
 }
-#if !BATTERYBAR_TESTING
+#if !BATTERYCARE_TESTING
 @main struct BatteryCareMain {
     @MainActor static func main() {
+        AppIdentity.migratePreferences()
+        if CommandLine.arguments.dropFirst().first == "--login-item" {
+            let args = CommandLine.arguments
+            guard args.count == 3, ["enable", "disable", "status"].contains(args[2]) else {
+                fputs("Usage: BatteryCare --login-item enable|disable|status\n", stderr); exit(64)
+            }
+            do {
+                let service = SMAppService.mainApp
+                if args[2] == "enable", service.status != .enabled { try service.register() }
+                if args[2] == "disable", service.status != .notRegistered { try service.unregister() }
+                print("BatteryCare login item: \(service.status.rawValue)")
+            } catch { fputs("\(error)\n", stderr); exit(1) }
+            return
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

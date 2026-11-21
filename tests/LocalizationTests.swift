@@ -37,6 +37,22 @@ import Foundation
         precondition(L10n.selectedLanguage(defaults: defaults, preferred: ["en"]) == .traditionalChinese)
         defaults.set("invalid", forKey: L10n.preferenceKey)
         precondition(L10n.selectedLanguage(defaults: defaults, preferred: ["ja"]) == .japanese)
+        let legacySuite = suite + ".legacy"
+        let legacyDefaults = UserDefaults(suiteName: legacySuite)!
+        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
+        legacyDefaults.set("zh-Hans", forKey: L10n.preferenceKey)
+        legacyDefaults.set(420, forKey: MenuBarPosition.preferredPositionKey)
+        defaults.removeObject(forKey: L10n.preferenceKey)
+        AppIdentity.migratePreferences(to: defaults, from: legacyDefaults)
+        precondition(defaults.string(forKey: L10n.preferenceKey) == "zh-Hans")
+        precondition(defaults.integer(forKey: MenuBarPosition.preferredPositionKey) == 420)
+        defaults.set("ja", forKey: L10n.preferenceKey)
+        AppIdentity.migratePreferences(to: defaults, from: legacyDefaults)
+        precondition(defaults.string(forKey: L10n.preferenceKey) == "ja")
+        precondition(AppIdentity.bundleIdentifier == "com.local.batterycare")
+        precondition(AppIdentity.conflictingBundleIdentifiers.contains(AppIdentity.legacyBundleIdentifier))
+        precondition(AppIdentity.conflictingBundleIdentifiers.contains(AppIdentity.bundleIdentifier))
+        print("PASS renamed identity migrates only missing language/menu-position preferences")
         let model = BatteryModel(poll: false)
         var updates = 0
         model.onUpdate = { updates += 1 }

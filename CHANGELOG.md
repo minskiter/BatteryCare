@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.0 — 2026-11-21
+
+- Replace constant single-thread stress with adaptive CPU-only work: at most 4 workers and half the logical cores (minimum 1), gradual ramp-up, bounded target duty and temperature taper.
+- Cap the effective CPU cutoff at 75°C, honor lower user limits, and reduce/stop work on OS thermal pressure, including an independent worker-side guard.
+- Reject invalid sensor samples and use monotonic worker leases; retain low-battery, adapter-cutoff and opt-in protections. No added GPU, disk or large-buffer workload.
+- Add mock-worker lifecycle and pure load-policy tests, four-language settings guidance, and explicit limits on wear/performance claims.
+- Drive the battery gauge from real activity: flowing discharge chevrons, a charging bolt, a cooling pause and a waiting clock. Stop animation when hidden or Reduce Motion is enabled.
+- Use the BatteryCare bundle identity and configuration directory, migrate old valid settings and missing preferences, and add an installed-bundle login-item maintenance command.
+- Bump to 2.2.0 (build 8), add isolated activity/migration tests and a native-rendered UI preview.
+
 ## 2.1.1 — 2026-11-15
 
 - Add a best-effort right-side initial menu bar position and a stable AppKit autosave name.
